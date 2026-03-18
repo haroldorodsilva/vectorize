@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from server import app; print\\(''OK''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr 8888)",
+      "Bash(tasklist /FI \"PID eq 9460\")",
+      "Bash(tasklist /FI \"PID eq 9060\")",
+      "Bash(tasklist /FI \"PID eq 7440\")",
+      "Bash(tasklist /FI \"PID eq 9896\")",
+      "Bash(powershell -Command \"Get-Process -Id 9460,9060,7440,9896 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,MainWindowTitle\" 2>&1)",
+      "Bash(powershell -Command \"netstat -ano | Select-String '808'\" 2>&1)"
+    ]
+  }
+}
