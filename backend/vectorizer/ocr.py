@@ -17,11 +17,22 @@ def extract_text(image_bytes: bytes) -> list[dict]:
     """
     try:
         return _extract_paddleocr(image_bytes)
-    except ImportError:
-        try:
-            return _extract_tesseract(image_bytes)
-        except ImportError:
-            return []
+    except (ImportError, Exception):
+        pass
+    try:
+        return _extract_easyocr(image_bytes)
+    except (ImportError, Exception):
+        pass
+    try:
+        return _extract_tesseract(image_bytes)
+    except (ImportError, Exception):
+        pass
+    raise ImportError(
+        "Nenhum pacote OCR disponível. Instale um: "
+        "pip install paddleocr paddlepaddle  OU  "
+        "pip install easyocr  OU  "
+        "pip install pytesseract (+ Tesseract binário)"
+    )
 
 
 def _extract_paddleocr(image_bytes: bytes) -> list[dict]:
@@ -56,6 +67,33 @@ def _extract_paddleocr(image_bytes: bytes) -> list[dict]:
                 "bbox": [round(x), round(y), round(w), round(h)],
                 "confidence": round(confidence, 3),
             })
+
+    return text_regions
+
+
+def _extract_easyocr(image_bytes: bytes) -> list[dict]:
+    """Extract text using EasyOCR (no external binary needed)."""
+    import easyocr
+
+    arr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return []
+
+    reader = easyocr.Reader(['pt', 'en'], gpu=False)
+    results = reader.readtext(img)
+
+    text_regions = []
+    for (bbox_points, text, confidence) in results:
+        xs = [p[0] for p in bbox_points]
+        ys = [p[1] for p in bbox_points]
+        x, y = min(xs), min(ys)
+        w, h = max(xs) - x, max(ys) - y
+        text_regions.append({
+            "text": text,
+            "bbox": [round(x), round(y), round(w), round(h)],
+            "confidence": round(float(confidence), 3),
+        })
 
     return text_regions
 

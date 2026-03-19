@@ -125,34 +125,47 @@ export function RightPanel({
 
   // ── Download helpers ──────────────────────────────────────────────────────
   const dlSvg = () => {
-    const el = editorRef.getSvg(); if (!el) return
+    const el = editorRef.getSvg(), curVb = editorRef.vbRef.current
+    if (!el || !curVb) return
     const clone = el.cloneNode(true) as SVGSVGElement
+    clone.removeAttribute('style')
+    clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
+    clone.setAttribute('width', String(Math.round(curVb.w)))
+    clone.setAttribute('height', String(Math.round(curVb.h)))
     clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
     const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' })
     Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'vetorizado.svg' }).click()
   }
   const dlPng = async (transparent: boolean) => {
-    const el = editorRef.getSvg(), origVb = editorRef.origVbRef.current, curVb = editorRef.vbRef.current
-    if (!el || !origVb || !curVb) return
-    el.setAttribute('viewBox', `${origVb.x} ${origVb.y} ${origVb.w} ${origVb.h}`)
+    const el = editorRef.getSvg(), curVb = editorRef.vbRef.current
+    if (!el || !curVb) return
+
+    // Clone and clean: remove CSS display styles that would mess up rendering
+    const clone = el.cloneNode(true) as SVGSVGElement
+    clone.removeAttribute('style')
+    clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
+    clone.setAttribute('width', String(Math.round(curVb.w)))
+    clone.setAttribute('height', String(Math.round(curVb.h)))
+    clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
+
     const restored: Array<{ el: Element; f: string }> = []
     if (transparent) {
-      el.querySelectorAll('[data-region]').forEach(p => {
+      clone.querySelectorAll('[data-region]').forEach(p => {
         const f = p.getAttribute('fill')
         if (!f || f === '#FFFFFF' || f === '#ffffff') { restored.push({ el: p, f: f ?? '#FFFFFF' }); p.setAttribute('fill', 'none') }
       })
     }
-    const data = new XMLSerializer().serializeToString(el)
-    restored.forEach(({ el: p, f }) => p.setAttribute('fill', f))
-    el.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
+
+    const data = new XMLSerializer().serializeToString(clone)
+    const w = Math.round(curVb.w), h = Math.round(curVb.h)
     const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }))
     await new Promise<void>((res, rej) => {
       const img = new Image()
       img.onload = () => {
-        const cv = document.createElement('canvas'); cv.width = origVb.w; cv.height = origVb.h
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h
         const ctx = cv.getContext('2d')!
-        if (!transparent) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height) }
-        ctx.drawImage(img, 0, 0); URL.revokeObjectURL(url)
+        if (!transparent) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h) }
+        ctx.drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url)
         Object.assign(document.createElement('a'), { href: cv.toDataURL('image/png'), download: transparent ? 'transparente.png' : 'vetorizado.png' }).click()
         res()
       }

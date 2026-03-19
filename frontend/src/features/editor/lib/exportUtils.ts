@@ -29,26 +29,24 @@ export async function exportPng(
   scale: number = 1,
   transparent: boolean = false,
 ): Promise<Blob> {
-  // Temporarily set viewBox to original for correct rendering
-  svgEl.setAttribute('viewBox', `${origVb.x} ${origVb.y} ${origVb.w} ${origVb.h}`)
+  // Clone and clean: remove CSS display styles that mess up export rendering
+  const clone = svgEl.cloneNode(true) as SVGSVGElement
+  clone.removeAttribute('style')
+  clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
+  clone.setAttribute('width', String(Math.round(curVb.w)))
+  clone.setAttribute('height', String(Math.round(curVb.h)))
+  clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
 
-  const restored: Array<{ el: Element; f: string }> = []
   if (transparent) {
-    svgEl.querySelectorAll('[data-region]').forEach(p => {
+    clone.querySelectorAll('[data-region]').forEach(p => {
       const f = p.getAttribute('fill')
-      if (!f || f === '#FFFFFF' || f === '#ffffff') {
-        restored.push({ el: p, f: f ?? '#FFFFFF' })
-        p.setAttribute('fill', 'none')
-      }
+      if (!f || f === '#FFFFFF' || f === '#ffffff') p.setAttribute('fill', 'none')
     })
   }
 
-  const data = new XMLSerializer().serializeToString(svgEl)
-  restored.forEach(({ el: p, f }) => p.setAttribute('fill', f))
-  svgEl.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
-
-  const w = origVb.w * scale
-  const h = origVb.h * scale
+  const data = new XMLSerializer().serializeToString(clone)
+  const w = Math.round(curVb.w * scale)
+  const h = Math.round(curVb.h * scale)
 
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }))

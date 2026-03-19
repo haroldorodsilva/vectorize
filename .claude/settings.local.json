@@ -23,7 +23,10 @@
       "mcp__ide__getDiagnostics",
       "WebSearch",
       "Bash(npm ls:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(tesseract --version)"
     ]
   }
 }

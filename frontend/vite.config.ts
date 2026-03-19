@@ -15,8 +15,11 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5151,
       proxy: {
-        '/vectorize': { target: apiUrl, changeOrigin: true },
-        '/health':    { target: apiUrl, changeOrigin: true },
+        '/vectorize':   { target: apiUrl, changeOrigin: true },
+        '/health':      { target: apiUrl, changeOrigin: true },
+        '/preprocess':  { target: apiUrl, changeOrigin: true },
+        '/analyze':     { target: apiUrl, changeOrigin: true },
+        '/extract-text':{ target: apiUrl, changeOrigin: true },
       },
     },
     build: {
