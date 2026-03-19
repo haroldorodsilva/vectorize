@@ -6,3 +6,7 @@ fastapi>=0.104
 uvicorn>=0.24
 python-multipart>=0.0.6
 vtracer>=0.6
+# Phase 10: Advanced processing
+rembg>=2.0
+pillow-heif>=0.14
+cairosvg>=2.7

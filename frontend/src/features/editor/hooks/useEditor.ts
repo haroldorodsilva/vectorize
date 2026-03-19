@@ -10,6 +10,7 @@ export function useEditor() {
   const origVbRef   = useRef<ViewBox | null>(null)
   const displayRef  = useRef<DisplayState | null>(null)
   const undoStack   = useRef<UndoEntry[]>([])
+  const redoStack   = useRef<UndoEntry[]>([])
 
   const getSvg = (): SVGSVGElement | null =>
     boxRef.current?.querySelector('svg') ?? null
@@ -104,11 +105,13 @@ export function useEditor() {
       }
     }
     undoStack.current = []
+    redoStack.current = []
   }, [applyDisplay])
 
   // ── Undo stack ─────────────────────────────────────────────────────────────
   /** Push undo for a newly-drawn element (undo = remove it). */
   const pushUndo = useCallback((el: Element, prev: string | null) => {
+    redoStack.current = [] // New action clears redo
     if (prev === null) {
       undoStack.current.push({ type: 'add', el })
     } else {
@@ -118,26 +121,67 @@ export function useEditor() {
 
   /** Push undo for arbitrary attribute changes (pass attrs snapshot BEFORE the change). */
   const pushUndoAttrs = useCallback((el: Element, attrs: Array<[string, string | null]>) => {
+    redoStack.current = [] // New action clears redo
     undoStack.current.push({ type: 'attrs', el, attrs })
   }, [])
 
   // ── Paint ──────────────────────────────────────────────────────────────────
   const paint = useCallback((el: Element, color: string, erasing: boolean) => {
     const prev = el.getAttribute('fill')
-    const next = erasing ? '#FFFFFF' : color
+    const next = erasing ? 'none' : color
     if (prev === next) return
+    redoStack.current = []
     undoStack.current.push({ type: 'attrs', el, attrs: [['fill', prev ?? '#FFFFFF']] })
     el.setAttribute('fill', next)
+    // When erasing, add a thin stroke so the element boundary remains visible
+    if (erasing && (!el.getAttribute('stroke') || el.getAttribute('stroke') === 'none')) {
+      el.setAttribute('stroke', '#cccccc')
+      el.setAttribute('stroke-width', '0.5')
+    }
   }, [])
 
   const undo = useCallback(() => {
     const last = undoStack.current.pop()
     if (!last) return
     if (last.type === 'add') {
+      const parent = last.el.parentElement
+      const before = last.el.nextElementSibling
       last.el.parentNode?.removeChild(last.el)
+      // Push inverse to redo: re-insert
+      redoStack.current.push({ type: 'remove', el: last.el, parent: parent!, before })
     } else if (last.type === 'remove') {
       last.parent.insertBefore(last.el, last.before)
+      // Push inverse to redo: re-remove
+      redoStack.current.push({ type: 'add', el: last.el })
     } else {
+      // Save current values for redo before restoring
+      const curAttrs: Array<[string, string | null]> = last.attrs.map(
+        ([a]) => [a, last.el.getAttribute(a)] as [string, string | null]
+      )
+      redoStack.current.push({ type: 'attrs', el: last.el, attrs: curAttrs })
+      for (const [a, v] of last.attrs) {
+        if (v === null) last.el.removeAttribute(a)
+        else last.el.setAttribute(a, v)
+      }
+    }
+  }, [])
+
+  const redo = useCallback(() => {
+    const last = redoStack.current.pop()
+    if (!last) return
+    if (last.type === 'add') {
+      const parent = last.el.parentElement
+      const before = last.el.nextElementSibling
+      last.el.parentNode?.removeChild(last.el)
+      undoStack.current.push({ type: 'remove', el: last.el, parent: parent!, before })
+    } else if (last.type === 'remove') {
+      last.parent.insertBefore(last.el, last.before)
+      undoStack.current.push({ type: 'add', el: last.el })
+    } else {
+      const curAttrs: Array<[string, string | null]> = last.attrs.map(
+        ([a]) => [a, last.el.getAttribute(a)] as [string, string | null]
+      )
+      undoStack.current.push({ type: 'attrs', el: last.el, attrs: curAttrs })
       for (const [a, v] of last.attrs) {
         if (v === null) last.el.removeAttribute(a)
         else last.el.setAttribute(a, v)
@@ -210,8 +254,11 @@ export function useEditor() {
     let bg = el.querySelector<SVGRectElement>('#svg-bg')
     if (color === 'none' || color === 'transparent') {
       bg?.remove()
+      // Also set CSS background to transparent so the checkerboard or stage shows through
+      el.style.background = 'transparent'
       return
     }
+    el.style.background = color
     if (!bg) {
       bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect') as SVGRectElement
       bg.id = 'svg-bg'
@@ -367,8 +414,8 @@ export function useEditor() {
   ) => {
     const sl = parseFloat(sel.style.left),  st = parseFloat(sel.style.top)
     const sw = parseFloat(sel.style.width), sh = parseFloat(sel.style.height)
-    const el = getSvg(), vb = vbRef.current
-    if (!el || !vb || sw < 5 || sh < 5) return false
+    const el = getSvg(), vb = vbRef.current, box = boxRef.current
+    if (!el || !vb || !box || sw < 5 || sh < 5) return false
     const svgR = el.getBoundingClientRect(), ovR = ovEl.getBoundingClientRect()
     const scX = vb.w / svgR.width, scY = vb.h / svgR.height
     const newVb: ViewBox = {
@@ -380,9 +427,17 @@ export function useEditor() {
     vbRef.current    = newVb
     origVbRef.current = { ...newVb }
     applyVb()
+
+    // Recalculate display to fit the new cropped viewBox
+    const bw = box.clientWidth, bh = box.clientHeight
+    const fitScale = Math.min((bw * 0.85) / newVb.w, (bh * 0.85) / newVb.h, 2)
+    const baseW = newVb.w, baseH = newVb.h
+    displayRef.current = { baseW, baseH, scale: fitScale, tx: 0, ty: 0 }
+    applyDisplay()
+
     syncResInputs()
     return true
-  }, [applyVb, syncResInputs])
+  }, [applyVb, applyDisplay, syncResInputs])
 
   // ── Reset transforms ──────────────────────────────────────────────────────
   const resetTransforms = useCallback(() => {
@@ -399,14 +454,57 @@ export function useEditor() {
     syncResInputs()
   }, [applyVb, syncResInputs])
 
+  // ── Boolean operations ────────────────────────────────────────────────────
+  const booleanOp = useCallback(async (els: Element[], op: 'unite' | 'subtract' | 'intersect' | 'exclude') => {
+    if (els.length < 2) return null
+    const svg = getSvg()
+    if (!svg) return null
+    const { applyBooleanOp } = await import('../lib/booleanOps')
+    let current = els[0]
+    for (let i = 1; i < els.length; i++) {
+      const result = applyBooleanOp(current, els[i], op, svg)
+      if (!result) return null
+      current = result
+    }
+    undoStack.current.push({ type: 'add', el: current })
+    return current
+  }, [])
+
+  // ── Zoom to fit elements ──────────────────────────────────────────────────
+  const zoomToElements = useCallback((els: Element[]) => {
+    const svgEl = getSvg(), vb = vbRef.current, d = displayRef.current, box = boxRef.current
+    if (!svgEl || !vb || !d || !box || els.length === 0) return
+    const svgR = svgEl.getBoundingClientRect()
+    const scX = vb.w / svgR.width, scY = vb.h / svgR.height
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const el of els) {
+      const r = el.getBoundingClientRect()
+      const ex = vb.x + (r.left - svgR.left) * scX
+      const ey = vb.y + (r.top - svgR.top) * scY
+      if (ex < minX) minX = ex
+      if (ey < minY) minY = ey
+      if (ex + r.width * scX > maxX) maxX = ex + r.width * scX
+      if (ey + r.height * scY > maxY) maxY = ey + r.height * scY
+    }
+    const ew = maxX - minX, eh = maxY - minY
+    if (ew < 1 || eh < 1) return
+    const boxR = box.getBoundingClientRect()
+    const pad = 40
+    const scale = Math.min((boxR.width - pad * 2) / ew, (boxR.height - pad * 2) / eh, 4)
+    d.scale = scale / (vb.w / d.baseW)
+    d.tx = 0; d.ty = 0
+    applyDisplay()
+  }, [applyDisplay])
+
   return {
     boxRef, vbRef, origVbRef, displayRef,
     getSvg, clientToSvg, zoomAt, resetZoom, initViewBox, applyDisplay,
-    pushUndo, pushUndoAttrs, paint, undo, clearColors, deleteSelected,
+    pushUndo, pushUndoAttrs, paint, undo, redo, clearColors, deleteSelected,
     saveColorMap, restoreColorMap,
     rotate, applyRot, syncResInputs, applyResize, confirmCrop, resetTransforms,
     bringForward, sendBack, bringToFront, sendToBack,
     duplicate, setBackground, getBackground,
     groupElements, ungroupElement, combinePaths,
+    booleanOp, zoomToElements,
   }
 }

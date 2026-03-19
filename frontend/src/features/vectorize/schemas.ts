@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const controlsSchema = z.object({
-  mode:      z.enum(['lineart', 'icon', 'vtracer']).default('lineart'),
+  mode:      z.enum(['lineart', 'icon', 'vtracer', 'deep_edges']).default('lineart'),
   threshold: z.coerce.number().int().min(80).max(210).default(170),
   dilate:    z.coerce.number().int().min(1).max(6).default(1),
   minArea:   z.coerce.number().int().min(1).max(500).default(10),

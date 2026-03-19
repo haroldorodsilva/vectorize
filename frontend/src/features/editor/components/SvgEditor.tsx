@@ -1,13 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { usePaletteStore } from '@/features/palette/store'
 import { useEditor } from '../hooks/useEditor'
+import { NodeEditOverlay } from './NodeEditOverlay'
+import { InlineTextEditor } from './InlineTextEditor'
+import { GridOverlay } from './GridOverlay'
+import { SmartGuides } from './SmartGuides'
+import { ZoomBar } from './ZoomBar'
+import { Rulers } from './Rulers'
+import { Minimap } from './Minimap'
+import { ContextMenu } from './ContextMenu'
+import { createPenState, penDown, penMove, penUp, commitPen, cancelPen, type PenToolState } from '../tools/penTool'
+import { createPolygon } from '../tools/polygonTool'
+import { createFreehandState, freehandDown, freehandMove, freehandUp, type FreehandState } from '../tools/freehandTool'
 
 // Custom SVG cursors
 const CURSOR_PENCIL = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path fill="#222" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm21.41-19.04a1 1 0 0 0-1.41 0l-4.59 4.59 3.75 3.75 4.59-4.59a1 1 0 0 0 0-1.41z"/></svg>')}") 0 20, crosshair`
 const CURSOR_ERASER = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path fill="#aaa" d="M15.14 3c-.51 0-1.02.2-1.41.59L2.59 14.73a2 2 0 0 0 0 2.83L5.03 20H20v-2H9.41l8.18-8.18-5.83-5.83a2 2 0 0 0-1.41-.59h-.21z"/></svg>')}") 4 20, cell`
 
-const DRAW_MODES = ['rect', 'ellipse', 'line', 'text'] as const
+const DRAW_MODES = ['rect', 'ellipse', 'line', 'text', 'pen', 'polygon', 'freehand', 'arrow'] as const
 
 interface SvgEditorProps {
   svgContent: string | null
@@ -68,35 +79,46 @@ const HANDLES = [
 ]
 
 interface SelOverlayProps {
-  el: Element | null
+  els: Element[]
   containerRef: React.RefObject<HTMLDivElement | null>
   editorRef: ReturnType<typeof useEditor>
 }
 
-function SelectionOverlay({ el, containerRef, editorRef }: SelOverlayProps) {
+function SelectionOverlay({ els, containerRef, editorRef }: SelOverlayProps) {
   const [box, setBox] = useState({ left: 0, top: 0, w: 0, h: 0 })
   const rafRef = useRef<number>()
+  const singleEl = els.length === 1 ? els[0] : null
 
   useEffect(() => {
-    if (!el) return
+    if (els.length === 0) return
     const update = () => {
       const ctr = containerRef.current
-      if (!ctr || !el) return
-      const er = el.getBoundingClientRect()
+      if (!ctr) return
       const cr = ctr.getBoundingClientRect()
+      // Combined bounding box of all selected elements
+      let minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity
+      for (const el of els) {
+        const er = el.getBoundingClientRect()
+        if (er.left < minL) minL = er.left
+        if (er.top  < minT) minT = er.top
+        if (er.right  > maxR) maxR = er.right
+        if (er.bottom > maxB) maxB = er.bottom
+      }
       setBox({
-        left: er.left - cr.left,
-        top:  er.top  - cr.top,
-        w:    er.width,
-        h:    er.height,
+        left: minL - cr.left,
+        top:  minT - cr.top,
+        w:    maxR - minL,
+        h:    maxB - minT,
       })
       rafRef.current = requestAnimationFrame(update)
     }
     rafRef.current = requestAnimationFrame(update)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [el, containerRef])
+  }, [els, containerRef])
 
-  if (!el) return null
+  if (els.length === 0) return null
+  // Use first element for resize handles (only for single selection)
+  const el = singleEl
 
   const onHandleDown = (e: React.MouseEvent, dx: number, dy: number) => {
     e.preventDefault()
@@ -162,8 +184,8 @@ function SelectionOverlay({ el, containerRef, editorRef }: SelOverlayProps) {
       <div className="absolute inset-0 border-2 border-blue-500"
            style={{ outline: '1px solid rgba(255,255,255,0.6)' }} />
 
-      {/* 8 resize handles */}
-      {HANDLES.map(({ dx, dy, cur }, i) => (
+      {/* 8 resize handles (only for single selection) */}
+      {el && HANDLES.map(({ dx, dy, cur }, i) => (
         <div
           key={i}
           className="absolute w-2.5 h-2.5 bg-white border-2 border-blue-500 rounded-[2px] pointer-events-auto z-10 shadow-sm"
@@ -175,6 +197,72 @@ function SelectionOverlay({ el, containerRef, editorRef }: SelOverlayProps) {
           onMouseDown={e => onHandleDown(e, dx, dy)}
         />
       ))}
+      {/* Rotation handle (single selection only) */}
+      {el && (
+        <>
+          {/* Stem line from top-center to rotation handle */}
+          <div className="absolute pointer-events-none"
+            style={{ left: box.w / 2, top: -28, width: 1, height: 22, background: '#3b82f6' }} />
+          {/* Rotation grip */}
+          <div
+            className="absolute w-4 h-4 rounded-full bg-white border-2 border-blue-500 pointer-events-auto z-10 shadow-md cursor-grab"
+            style={{ left: box.w / 2 - 8, top: -36 }}
+            onMouseDown={e => {
+              e.preventDefault(); e.stopPropagation()
+              const svgEl = editorRef.getSvg()
+              const vb = editorRef.vbRef.current
+              if (!svgEl || !vb || !el) return
+              const svgR = svgEl.getBoundingClientRect()
+              const er = el.getBoundingClientRect()
+              // Center of element in screen coords
+              const ccx = er.left + er.width / 2
+              const ccy = er.top + er.height / 2
+              // Center in SVG coords
+              const scX = vb.w / svgR.width, scY = vb.h / svgR.height
+              const svgCx = vb.x + (er.left + er.width / 2 - svgR.left) * scX
+              const svgCy = vb.y + (er.top + er.height / 2 - svgR.top) * scY
+              const startAngle = Math.atan2(e.clientY - ccy, e.clientX - ccx)
+              const savedTf = el.getAttribute('transform') ?? ''
+              editorRef.pushUndoAttrs(el, [['transform', savedTf]])
+
+              const onMove = (ev: MouseEvent) => {
+                const curAngle = Math.atan2(ev.clientY - ccy, ev.clientX - ccx)
+                const deg = ((curAngle - startAngle) * 180 / Math.PI)
+                const rounded = ev.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg)
+                const tf = `rotate(${rounded}, ${svgCx.toFixed(1)}, ${svgCy.toFixed(1)}) ${savedTf}`.trim()
+                el.setAttribute('transform', tf)
+              }
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove)
+                window.removeEventListener('mouseup', onUp)
+              }
+              window.addEventListener('mousemove', onMove)
+              window.addEventListener('mouseup', onUp)
+            }}
+          />
+        </>
+      )}
+      {/* Dimension label (bottom of selection) */}
+      {(() => {
+        const vb = editorRef.vbRef.current
+        const svgEl = editorRef.getSvg()
+        if (!vb || !svgEl || box.w < 10) return null
+        const svgR = svgEl.getBoundingClientRect()
+        const wSvg = Math.round(box.w / svgR.width * vb.w)
+        const hSvg = Math.round(box.h / svgR.height * vb.h)
+        return (
+          <div className="absolute left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[0.55rem] font-mono px-1.5 py-0.5 rounded-sm pointer-events-none whitespace-nowrap"
+            style={{ top: box.h + 4 }}>
+            {wSvg} × {hSvg}
+          </div>
+        )
+      })()}
+      {/* Multi-select count badge */}
+      {els.length > 1 && (
+        <div className="absolute -top-5 left-0 bg-blue-500 text-white text-[0.6rem] font-bold px-1.5 py-0.5 rounded-sm pointer-events-none">
+          {els.length} selecionados
+        </div>
+      )}
     </div>
   )
 }
@@ -183,9 +271,14 @@ export function SvgEditor({
   svgContent, editorRef, tpOn, cropActive, onCropConfirm, onCropCancel,
 }: SvgEditorProps) {
   const { boxRef, zoomAt, resetZoom, paint, clientToSvg, pushUndo } = editorRef
-  const { selectedColor, mode, selectedEl, setSelectedEl } = usePaletteStore()
+  const { selectedColor, mode, selectedEl, selectedEls, setSelectedEl, setSelectedEls, toggleSelectedEl, gridEnabled, gridSize, guidesEnabled } = usePaletteStore()
+
+  // Track which elements are being moved (for smart guides)
+  const [movingElsForGuides, setMovingElsForGuides] = useState<Element[]>([])
+  const [allRegionEls, setAllRegionEls] = useState<Element[]>([])
 
   const outerRef     = useRef<HTMLDivElement>(null)
+  const marqueeRef   = useRef<HTMLDivElement>(null)
   const cropOvRef    = useRef<HTMLDivElement>(null)
   const cropSelRef   = useRef<HTMLDivElement>(null)
   const cdotRef      = useRef<HTMLDivElement>(null)
@@ -193,29 +286,36 @@ export function SvgEditor({
   const [showCropOk, setShowCropOk]         = useState(false)
   const cropAnchor = useRef<{ x: number; y: number } | null>(null)
 
+  // Node-edit mode: double-click a path to edit its nodes
+  const [nodeEditEl, setNodeEditEl] = useState<Element | null>(null)
+  const exitNodeEdit = useCallback(() => setNodeEditEl(null), [])
+
+  // Inline text editing: double-click a text element
+  const [textEditEl, setTextEditEl] = useState<SVGTextElement | null>(null)
+
   // Text tool overlay
   const [textOverlay, setTextOverlay] = useState<{ clientX: number; clientY: number; svgX: number; svgY: number } | null>(null)
   const [textValue, setTextValue]     = useState('')
 
-  // Selection indicator via CSS `data-sel`
-  const prevSelRef = useRef<Element | null>(null)
+  // Selection indicator via CSS `data-sel` — supports multi-select
+  const prevSelEls = useRef<Element[]>([])
 
   useEffect(() => {
-    const prev = prevSelRef.current
-    if (prev && prev !== selectedEl) {
-      prev.removeAttribute('data-sel')
+    for (const el of prevSelEls.current) {
+      if (!selectedEls.includes(el)) el.removeAttribute('data-sel')
     }
-    if (selectedEl) {
-      selectedEl.setAttribute('data-sel', '1')
+    for (const el of selectedEls) {
+      el.setAttribute('data-sel', '1')
     }
-    prevSelRef.current = selectedEl
-  }, [selectedEl])
+    prevSelEls.current = [...selectedEls]
+  }, [selectedEls])
 
   // ── Cursor style ──────────────────────────────────────────────────────────
   const isDrawMode = (DRAW_MODES as readonly string[]).includes(mode)
   const cursorStyle =
     mode === 'paint' ? { cursor: CURSOR_PENCIL } :
     mode === 'erase' ? { cursor: CURSOR_ERASER } :
+    mode === 'eyedropper' ? { cursor: 'crosshair' } :
     isDrawMode       ? { cursor: 'crosshair' }   :
     undefined
 
@@ -242,6 +342,13 @@ export function SvgEditor({
     let previewEl: SVGElement | null = null
     let drawCounter = Date.now()
 
+    // Pen tool state
+    let penState: PenToolState = createPenState()
+    // Freehand tool state
+    let fhState: FreehandState = createFreehandState()
+    // Polygon tool state
+    let polyPreview: SVGPathElement | null = null
+
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return
       e.preventDefault(); e.stopPropagation()
@@ -254,6 +361,25 @@ export function SvgEditor({
         setTextValue('')
         return
       }
+
+      // Pen tool: each click adds a point
+      if (mode === 'pen') {
+        penState = penDown(penState, startSvg.x, startSvg.y, svg, selectedColor)
+        return
+      }
+
+      // Freehand tool
+      if (mode === 'freehand') {
+        fhState = freehandDown(fhState, startSvg.x, startSvg.y, svg, selectedColor)
+        return
+      }
+
+      // Polygon tool: drag from center
+      if (mode === 'polygon') {
+        drawActive = true
+        return
+      }
+
       drawActive = true
       if (mode === 'rect') {
         const el = document.createElementNS(ns, 'rect') as SVGRectElement
@@ -271,20 +397,60 @@ export function SvgEditor({
         el.setAttribute('stroke', selectedColor === '#FFFFFF' ? '#999' : 'none')
         el.setAttribute('stroke-width', '1'); el.setAttribute('opacity', '0.75')
         svg.appendChild(el); previewEl = el
-      } else if (mode === 'line') {
+      } else if (mode === 'line' || mode === 'arrow') {
+        // Ensure arrowhead marker exists for arrow mode
+        if (mode === 'arrow') {
+          let defs = svg.querySelector('defs')
+          if (!defs) { defs = document.createElementNS(ns, 'defs'); svg.insertBefore(defs, svg.firstChild) }
+          if (!defs.querySelector('#arrowhead')) {
+            const marker = document.createElementNS(ns, 'marker')
+            marker.setAttribute('id', 'arrowhead'); marker.setAttribute('markerWidth', '10')
+            marker.setAttribute('markerHeight', '7'); marker.setAttribute('refX', '9')
+            marker.setAttribute('refY', '3.5'); marker.setAttribute('orient', 'auto')
+            const poly = document.createElementNS(ns, 'polygon')
+            poly.setAttribute('points', '0 0, 10 3.5, 0 7'); poly.setAttribute('fill', selectedColor)
+            marker.appendChild(poly); defs.appendChild(marker)
+          }
+        }
         const el = document.createElementNS(ns, 'line') as SVGLineElement
         el.setAttribute('x1', String(startSvg.x)); el.setAttribute('y1', String(startSvg.y))
         el.setAttribute('x2', String(startSvg.x)); el.setAttribute('y2', String(startSvg.y))
         el.setAttribute('fill', 'none'); el.setAttribute('stroke', selectedColor)
         el.setAttribute('stroke-width', '2'); el.setAttribute('stroke-linecap', 'round')
         el.setAttribute('opacity', '0.75')
+        if (mode === 'arrow') el.setAttribute('marker-end', 'url(#arrowhead)')
         svg.appendChild(el); previewEl = el
       }
     }
 
     const onMove = (e: MouseEvent) => {
-      if (!drawActive || !previewEl) return
       const cur = clientToSvg(e.clientX, e.clientY)
+
+      // Pen tool: update handle (during drag) or cursor line (during hover)
+      if (mode === 'pen' && penState.points.length > 0) {
+        penState = penMove(penState, cur.x, cur.y)
+        if (penState.draggingHandle) return
+      }
+
+      // Freehand tool
+      if (mode === 'freehand' && fhState.active) {
+        fhState = freehandMove(fhState, cur.x, cur.y)
+        return
+      }
+
+      // Polygon: live preview during drag
+      if (mode === 'polygon' && drawActive) {
+        const svg = editorRef.getSvg()
+        if (!svg) return
+        const radius = Math.hypot(cur.x - startSvg.x, cur.y - startSvg.y)
+        if (polyPreview) polyPreview.remove()
+        polyPreview = createPolygon(startSvg.x, startSvg.y, radius, 6, 0, selectedColor)
+        polyPreview.setAttribute('opacity', '0.75')
+        svg.appendChild(polyPreview)
+        return
+      }
+
+      if (!drawActive || !previewEl) return
       if (mode === 'rect') {
         previewEl.setAttribute('x', String(Math.min(startSvg.x, cur.x)))
         previewEl.setAttribute('y', String(Math.min(startSvg.y, cur.y)))
@@ -295,13 +461,36 @@ export function SvgEditor({
         previewEl.setAttribute('cy', String((startSvg.y + cur.y) / 2))
         previewEl.setAttribute('rx', String(Math.abs(cur.x - startSvg.x) / 2))
         previewEl.setAttribute('ry', String(Math.abs(cur.y - startSvg.y) / 2))
-      } else if (mode === 'line') {
+      } else if (mode === 'line' || mode === 'arrow') {
         previewEl.setAttribute('x2', String(cur.x))
         previewEl.setAttribute('y2', String(cur.y))
       }
     }
 
     const onUp = () => {
+      // Pen tool: finish handle drag
+      if (mode === 'pen') {
+        penState = penUp(penState)
+        return
+      }
+
+      // Freehand: commit
+      if (mode === 'freehand' && fhState.active) {
+        const result = freehandUp(fhState, selectedColor)
+        fhState = result
+        if (result.committed) pushUndo(result.committed, null)
+        return
+      }
+
+      // Polygon: commit
+      if (mode === 'polygon' && polyPreview) {
+        polyPreview.setAttribute('opacity', '1')
+        pushUndo(polyPreview, null)
+        polyPreview = null
+        drawActive = false
+        return
+      }
+
       if (!drawActive || !previewEl) { drawActive = false; return }
       drawActive = false
       previewEl.setAttribute('data-region', String(drawCounter++))
@@ -311,13 +500,34 @@ export function SvgEditor({
       previewEl = null
     }
 
+    // Pen tool: Escape to cancel, Enter to commit open path
+    const onKey = (e: KeyboardEvent) => {
+      if (mode === 'pen') {
+        if (e.key === 'Escape') { penState = cancelPen(penState) }
+        if (e.key === 'Enter') {
+          const svg = editorRef.getSvg()
+          if (svg) {
+            const result = commitPen(penState, svg, selectedColor, false)
+            penState = result
+            if (result.committed) pushUndo(result.committed, null)
+          }
+        }
+      }
+    }
+
     box.addEventListener('mousedown', onDown, true)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('keydown', onKey)
     return () => {
       box.removeEventListener('mousedown', onDown, true)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('keydown', onKey)
+      // Cleanup on mode switch
+      if (penState.previewEl) penState.previewEl.remove()
+      if (fhState.previewEl) fhState.previewEl.remove()
+      if (polyPreview) polyPreview.remove()
     }
   }, [isDrawMode, mode, selectedColor, cropActive, boxRef, clientToSvg, pushUndo, editorRef])
 
@@ -342,7 +552,7 @@ export function SvgEditor({
     setTextValue('')
   }
 
-  // ── Mouse (pan + paint/erase/select + move) ───────────────────────────────
+  // ── Mouse (pan + paint/erase/select + move + marquee) ────────────────────
   useEffect(() => {
     if (isDrawMode) return
     const box = boxRef.current
@@ -350,25 +560,37 @@ export function SvgEditor({
     let md = false, mTgt: Element | null = null
     let mStart = { x: 0, y: 0 }, mMoved = false
     let panL: { x: number; y: number } | null = null
+    let shiftDown = false
 
-    // Drag-move state
-    let movingEl: Element | null = null
+    // Drag-move state (supports multi-element move)
+    let movingEls: Element[] = []
     let moveStartClient = { x: 0, y: 0 }
-    let savedTransformMove = ''
-    let moveUndoAttrs: Array<[string, string | null]> = []
+    let savedTransforms: string[] = []
+
+    // Marquee state
+    let marqueeActive = false
 
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0 || cropActive) return
       md = true; mTgt = e.target as Element
       mStart = { x: e.clientX, y: e.clientY }; mMoved = false
       panL = { x: e.clientX, y: e.clientY }; e.preventDefault()
+      shiftDown = e.shiftKey
 
-      if (mode === 'select' && selectedEl && mTgt === selectedEl) {
-        movingEl = selectedEl
-        moveStartClient = { x: e.clientX, y: e.clientY }
-        savedTransformMove = selectedEl.getAttribute('transform') ?? ''
-        // Capture pre-move transform for undo (pushed only if user actually drags)
-        moveUndoAttrs = [['transform', selectedEl.getAttribute('transform')]]
+      if (mode === 'select') {
+        const clickedRegion = mTgt.getAttribute('data-region') ? mTgt : null
+        // If clicking on a selected element: start move of all selected elements
+        if (clickedRegion && usePaletteStore.getState().selectedEls.includes(clickedRegion)) {
+          const els = usePaletteStore.getState().selectedEls
+          movingEls = els
+          moveStartClient = { x: e.clientX, y: e.clientY }
+          savedTransforms = els.map(el => el.getAttribute('transform') ?? '')
+          // Populate all elements for smart guides
+          const svg = editorRef.getSvg()
+          if (svg) setAllRegionEls(Array.from(svg.querySelectorAll('[data-region]')))
+        }
+        // If clicking on a non-selected region without shift: handled in onUp (select it)
+        // If clicking on empty space: will start marquee in onMove
       }
     }
     const onMove = (e: MouseEvent) => {
@@ -380,18 +602,49 @@ export function SvgEditor({
       if (Math.hypot(e.clientX - mStart.x, e.clientY - mStart.y) > 3) mMoved = true
       if (!mMoved) return
 
-      if (movingEl) {
-        // Compose move delta on top of saved transform (works after resize too)
+      // Multi-element move
+      if (movingEls.length > 0) {
         const svgEl = editorRef.getSvg()
         const vbCur = editorRef.vbRef.current
         if (!svgEl || !vbCur) return
         const svgR = svgEl.getBoundingClientRect()
-        const dx = (e.clientX - moveStartClient.x) / svgR.width  * vbCur.w
-        const dy = (e.clientY - moveStartClient.y) / svgR.height * vbCur.h
-        const tf = savedTransformMove
-          ? `translate(${dx.toFixed(2)}, ${dy.toFixed(2)}) ${savedTransformMove}`
-          : `translate(${dx.toFixed(2)}, ${dy.toFixed(2)})`
-        movingEl.setAttribute('transform', tf)
+        let dx = (e.clientX - moveStartClient.x) / svgR.width  * vbCur.w
+        let dy = (e.clientY - moveStartClient.y) / svgR.height * vbCur.h
+
+        // Snap to grid
+        if (usePaletteStore.getState().gridEnabled) {
+          const gs = usePaletteStore.getState().gridSize
+          dx = Math.round(dx / gs) * gs
+          dy = Math.round(dy / gs) * gs
+        }
+
+        for (let i = 0; i < movingEls.length; i++) {
+          const saved = savedTransforms[i]
+          const tf = saved
+            ? `translate(${dx.toFixed(2)}, ${dy.toFixed(2)}) ${saved}`
+            : `translate(${dx.toFixed(2)}, ${dy.toFixed(2)})`
+          movingEls[i].setAttribute('transform', tf)
+        }
+        setMovingElsForGuides([...movingEls])
+        return
+      }
+
+      // Marquee selection (drag on empty space in select mode)
+      if (mode === 'select' && !mTgt?.getAttribute('data-region')) {
+        marqueeActive = true
+        const mq = marqueeRef.current
+        if (mq) {
+          const cr = outerRef.current?.getBoundingClientRect()
+          if (cr) {
+            const x1 = mStart.x - cr.left, y1 = mStart.y - cr.top
+            const x2 = e.clientX - cr.left, y2 = e.clientY - cr.top
+            mq.style.display = 'block'
+            mq.style.left   = Math.min(x1, x2) + 'px'
+            mq.style.top    = Math.min(y1, y2) + 'px'
+            mq.style.width  = Math.abs(x2 - x1) + 'px'
+            mq.style.height = Math.abs(y2 - y1) + 'px'
+          }
+        }
         return
       }
 
@@ -404,24 +657,76 @@ export function SvgEditor({
       }
       panL = { x: e.clientX, y: e.clientY }
     }
-    const onUp = () => {
+    const onUp = (e: MouseEvent) => {
       if (!md) return; md = false
 
-      if (movingEl && mMoved) {
-        editorRef.pushUndoAttrs(movingEl, moveUndoAttrs)
-        movingEl = null; mTgt = null; panL = null; moveUndoAttrs = []
+      // Finish multi-element move
+      if (movingEls.length > 0 && mMoved) {
+        for (let i = 0; i < movingEls.length; i++) {
+          editorRef.pushUndoAttrs(movingEls[i], [['transform', savedTransforms[i] || null]])
+        }
+        movingEls = []; savedTransforms = []; mTgt = null; panL = null
+        setMovingElsForGuides([])
         return
       }
-      movingEl = null; moveUndoAttrs = []
+      movingEls = []; savedTransforms = []
+      setMovingElsForGuides([])
+
+      // Finish marquee selection
+      if (marqueeActive) {
+        marqueeActive = false
+        const mq = marqueeRef.current
+        if (mq) {
+          const mqR = mq.getBoundingClientRect()
+          mq.style.display = 'none'
+          // Find all [data-region] elements intersecting the marquee rect
+          const svg = editorRef.getSvg()
+          if (svg && mqR.width > 5 && mqR.height > 5) {
+            const hits: Element[] = []
+            svg.querySelectorAll('[data-region]').forEach(el => {
+              const er = el.getBoundingClientRect()
+              if (er.right > mqR.left && er.left < mqR.right &&
+                  er.bottom > mqR.top && er.top < mqR.bottom) {
+                hits.push(el)
+              }
+            })
+            if (hits.length > 0) {
+              if (shiftDown) {
+                // Add to existing selection
+                const cur = usePaletteStore.getState().selectedEls
+                const merged = [...cur]
+                for (const h of hits) { if (!merged.includes(h)) merged.push(h) }
+                setSelectedEls(merged)
+              } else {
+                setSelectedEls(hits)
+              }
+            } else {
+              setSelectedEls([])
+            }
+          }
+        }
+        mTgt = null; panL = null
+        return
+      }
 
       if (!mMoved && mTgt) {
         const region = mTgt.getAttribute('data-region') ? mTgt : null
         if (region) {
           if (mode === 'paint')        paint(region, selectedColor, false)
           else if (mode === 'erase')   paint(region, selectedColor, true)
-          else if (mode === 'select')  setSelectedEl(region === selectedEl ? null : region)
+          else if (mode === 'eyedropper') {
+            const fill = region.getAttribute('fill')
+            if (fill && fill !== 'none') usePaletteStore.getState().setColor(fill)
+          }
+          else if (mode === 'select') {
+            if (shiftDown) {
+              toggleSelectedEl(region)
+            } else {
+              setSelectedEl(region === selectedEl ? null : region)
+            }
+          }
         } else if (mode === 'select') {
-          setSelectedEl(null)
+          setSelectedEls([])
         }
       }
       mTgt = null; panL = null
@@ -429,7 +734,17 @@ export function SvgEditor({
     const onLeave = () => { if (cdotRef.current) cdotRef.current.style.display = 'none' }
 
     box.addEventListener('mousedown', onDown)
-    box.addEventListener('dblclick', e => { if (!(e.target as Element).getAttribute('data-region')) resetZoom() })
+    box.addEventListener('dblclick', e => {
+      const tgt = e.target as Element
+      if (tgt.getAttribute('data-region') && mode === 'select') {
+        const tag = tgt.tagName.toLowerCase()
+        if (tag === 'path') setNodeEditEl(tgt)
+        else if (tag === 'text') setTextEditEl(tgt as SVGTextElement)
+      } else if (!tgt.getAttribute('data-region')) {
+        setNodeEditEl(null); setTextEditEl(null)
+        resetZoom()
+      }
+    })
     box.addEventListener('mouseleave', onLeave)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -439,7 +754,7 @@ export function SvgEditor({
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [isDrawMode, cropActive, selectedColor, mode, selectedEl, clientToSvg, editorRef])
+  }, [isDrawMode, cropActive, selectedColor, mode, selectedEl, selectedEls, clientToSvg, editorRef, setSelectedEls, toggleSelectedEl])
 
   // ── Touch ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -500,7 +815,7 @@ export function SvgEditor({
       box.removeEventListener('touchmove',  onMove)
       box.removeEventListener('touchend',   onEnd)
     }
-  }, [cropActive, selectedColor, mode, selectedEl])
+  }, [cropActive, selectedColor, mode, selectedEl, setSelectedEl])
 
   // ── Crop drag ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -553,36 +868,78 @@ export function SvgEditor({
 
       {/* Selection overlay — only in select mode */}
       {mode === 'select' && !cropActive && (
-        <SelectionOverlay el={selectedEl} containerRef={outerRef} editorRef={editorRef} />
+        <SelectionOverlay els={selectedEls} containerRef={outerRef} editorRef={editorRef} />
       )}
 
-      {/* Crop overlay */}
+      {/* Rulers */}
+      <Rulers editorRef={editorRef} />
+
+      {/* Grid overlay */}
+      {gridEnabled && <GridOverlay editorRef={editorRef} gridSize={gridSize} />}
+
+      {/* Smart guides during drag */}
+      <SmartGuides
+        containerRef={outerRef}
+        movingEls={movingElsForGuides}
+        allEls={allRegionEls}
+        enabled={guidesEnabled && movingElsForGuides.length > 0}
+      />
+
+      {/* Inline text editor (double-click text to edit) */}
+      {textEditEl && mode === 'select' && (
+        <InlineTextEditor
+          el={textEditEl}
+          containerRef={outerRef}
+          editorRef={editorRef}
+          onDone={() => setTextEditEl(null)}
+        />
+      )}
+
+      {/* Node edit overlay (double-click path to edit nodes) */}
+      {nodeEditEl && mode === 'select' && (
+        <NodeEditOverlay
+          el={nodeEditEl}
+          containerRef={outerRef}
+          editorRef={editorRef}
+          onExit={exitNodeEdit}
+        />
+      )}
+
+      {/* Marquee selection rectangle */}
+      <div
+        ref={marqueeRef}
+        className="absolute border border-blue-400 bg-blue-400/10 pointer-events-none hidden z-20"
+      />
+
+      {/* Crop overlay — drag area */}
       {cropActive && (
-        <div ref={cropOvRef} className="absolute inset-0 z-30 cursor-crosshair overflow-hidden">
+        <div ref={cropOvRef} className="absolute inset-0 z-30 cursor-crosshair">
           <div
             ref={cropSelRef}
-            className={cn('absolute border-2 border-dashed border-white pointer-events-none', !cropSelVisible && 'hidden')}
+            className={cn('absolute border-2 border-dashed border-white', !cropSelVisible && 'hidden')}
+            style={{ pointerEvents: 'none' }}
           />
           <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1 rounded-full pointer-events-none whitespace-nowrap">
             Arraste para selecionar — depois clique em Confirmar
           </div>
-          {showCropOk && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 flex gap-2 z-10">
-              <button
-                className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg font-semibold"
-                onClick={() => {
-                  if (cropSelRef.current && cropOvRef.current) {
-                    const ok = onCropConfirm(cropSelRef.current, cropOvRef.current)
-                    if (ok) { setCropSelVisible(false); setShowCropOk(false) }
-                  }
-                }}
-              >✓ Confirmar</button>
-              <button
-                className="px-3 py-1.5 bg-white border border-gray-300 text-xs rounded-lg"
-                onClick={() => { onCropCancel(); setCropSelVisible(false); setShowCropOk(false) }}
-              >✕ Cancelar</button>
-            </div>
-          )}
+        </div>
+      )}
+      {/* Crop buttons — rendered ABOVE the crop overlay so box-shadow can't cover them */}
+      {cropActive && showCropOk && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-2 z-[50] pointer-events-auto">
+          <button
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-semibold shadow-lg transition-colors"
+            onClick={() => {
+              if (cropSelRef.current && cropOvRef.current) {
+                const ok = onCropConfirm(cropSelRef.current, cropOvRef.current)
+                if (ok) { setCropSelVisible(false); setShowCropOk(false) }
+              }
+            }}
+          >✓ Confirmar recorte</button>
+          <button
+            className="px-4 py-2 bg-white hover:bg-gray-100 border border-gray-300 text-xs rounded-lg shadow-lg transition-colors"
+            onClick={() => { onCropCancel(); setCropSelVisible(false); setShowCropOk(false) }}
+          >✕ Cancelar</button>
         </div>
       )}
 
@@ -605,6 +962,15 @@ export function SvgEditor({
           />
         </div>
       )}
+
+      {/* Context menu (right-click) */}
+      <ContextMenu editorRef={editorRef} containerRef={outerRef} />
+
+      {/* Minimap */}
+      <Minimap editorRef={editorRef} />
+
+      {/* Zoom bar */}
+      <ZoomBar editorRef={editorRef} />
 
       {/* Cursor dot (paint/erase only) */}
       <div

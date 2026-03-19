@@ -30,3 +30,61 @@ export async function vectorize(
   }
   return r.json() as Promise<VectorizeResponse>
 }
+
+/** Upscale image by 2x or 4x (returns PNG blob) */
+export async function upscaleImage(file: File, scale: number = 2): Promise<Blob> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('scale', String(scale))
+  const r = await fetch('/preprocess/upscale', { method: 'POST', body: fd })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail ?? r.statusText)
+  }
+  return r.blob()
+}
+
+/** Remove background from image (returns PNG blob with transparency) */
+export async function removeBackground(file: File): Promise<Blob> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch('/preprocess/remove-bg', { method: 'POST', body: fd })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail ?? r.statusText)
+  }
+  return r.blob()
+}
+
+/** Extract text from image using OCR */
+export async function extractText(file: File): Promise<{
+  regions: Array<{ text: string; bbox: number[]; confidence: number }>
+  count: number
+}> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch('/extract-text', { method: 'POST', body: fd })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail ?? r.statusText)
+  }
+  return r.json()
+}
+
+/** Analyze image type and get recommended settings */
+export async function analyzeImage(file: File): Promise<{
+  type: string
+  confidence: number
+  recommended_mode: string
+  recommended_settings: Record<string, unknown>
+  analysis: Record<string, unknown>
+}> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch('/analyze', { method: 'POST', body: fd })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail ?? r.statusText)
+  }
+  return r.json()
+}

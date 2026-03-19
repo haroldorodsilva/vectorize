@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { controlsSchema, type ControlsValues } from '../schemas'
 import { Slider } from '@/shared/components/ui/Slider'
 import { Button } from '@/shared/components/ui/Button'
 import { cn } from '@/shared/lib/utils'
+import { analyzeImage, removeBackground, upscaleImage, extractText } from '../api'
+import { useVectorizeStore } from '../store'
+import { PresetsPanel } from './PresetsPanel'
 
 interface ControlsFormProps {
   disabled?: boolean
@@ -62,9 +66,36 @@ export function ControlsForm({ disabled, loading, onSubmit }: ControlsFormProps)
         >
           ⚡ Foto
         </button>
+        <button
+          type="button"
+          onClick={() => setValue('mode', 'deep_edges')}
+          className={cn(
+            'flex-1 py-1.5 border-l border-gray-200 transition-colors',
+            mode === 'deep_edges' ? 'bg-teal-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50',
+          )}
+        >
+          🧠 Deep
+        </button>
       </div>
 
       <input type="hidden" {...register('mode')} />
+
+      {/* Presets */}
+      <PresetsPanel
+        currentValues={{ mode, threshold, dilate, minArea, vtColormode, vtFilterSpeckle, vtColorPrecision, vtLayerDifference, vtCornerThreshold, vtSpliceThreshold }}
+        onApply={(v) => {
+          if (v.mode) setValue('mode', v.mode as any)
+          if (v.threshold !== undefined) setValue('threshold', v.threshold)
+          if (v.dilate !== undefined) setValue('dilate', v.dilate)
+          if (v.minArea !== undefined) setValue('minArea', v.minArea)
+          if (v.vtColormode) setValue('vtColormode', v.vtColormode as any)
+          if (v.vtColorPrecision !== undefined) setValue('vtColorPrecision', v.vtColorPrecision)
+          if (v.vtFilterSpeckle !== undefined) setValue('vtFilterSpeckle', v.vtFilterSpeckle)
+          if (v.vtLayerDifference !== undefined) setValue('vtLayerDifference', v.vtLayerDifference)
+          if (v.vtCornerThreshold !== undefined) setValue('vtCornerThreshold', v.vtCornerThreshold)
+          if (v.vtSpliceThreshold !== undefined) setValue('vtSpliceThreshold', v.vtSpliceThreshold)
+        }}
+      />
 
       {/* Lineart controls */}
       {mode === 'lineart' && (
@@ -126,6 +157,98 @@ export function ControlsForm({ disabled, loading, onSubmit }: ControlsFormProps)
           </p>
         </div>
       )}
+
+      {/* Deep edges controls */}
+      {mode === 'deep_edges' && (
+        <div className="space-y-3">
+          <Slider label="Fechamento gaps" valueDisplay={dilate}
+            min={1} max={6} {...register('dilate', { valueAsNumber: true })} />
+          <Slider label="Área mínima" valueDisplay={minArea}
+            min={1} max={500} {...register('minArea', { valueAsNumber: true })} />
+          <p className="text-[0.65rem] text-teal-600 leading-tight">
+            🧠 Detecção de bordas com deep learning. Multi-escala Canny + LAB color space. Melhor para imagens complexas.
+          </p>
+        </div>
+      )}
+
+      {/* Preprocessing */}
+      <div className="flex gap-1.5">
+        <button
+          type="button" disabled={disabled}
+          onClick={async () => {
+            const file = useVectorizeStore.getState().currentFile
+            if (!file) return
+            try {
+              const blob = await removeBackground(file)
+              const newFile = new File([blob], file.name.replace(/\.\w+$/, '_nobg.png'), { type: 'image/png' })
+              useVectorizeStore.getState().setFile(newFile)
+              alert('Fundo removido!')
+            } catch (e) { alert('Erro: ' + (e instanceof Error ? e.message : e)) }
+          }}
+          className="flex-1 text-[0.65rem] py-1.5 border border-green-200 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg font-medium transition-colors"
+        >
+          Remover fundo
+        </button>
+        <button
+          type="button" disabled={disabled}
+          onClick={async () => {
+            const file = useVectorizeStore.getState().currentFile
+            if (!file) return
+            try {
+              const blob = await upscaleImage(file, 2)
+              const newFile = new File([blob], file.name.replace(/\.\w+$/, '_2x.png'), { type: 'image/png' })
+              useVectorizeStore.getState().setFile(newFile)
+              alert('Imagem ampliada 2x!')
+            } catch (e) { alert('Erro: ' + (e instanceof Error ? e.message : e)) }
+          }}
+          className="flex-1 text-[0.65rem] py-1.5 border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg font-medium transition-colors"
+        >
+          Ampliar 2x
+        </button>
+      </div>
+
+      {/* OCR text extraction */}
+      <button
+        type="button" disabled={disabled}
+        onClick={async () => {
+          const file = useVectorizeStore.getState().currentFile
+          if (!file) return
+          try {
+            const result = await extractText(file)
+            if (result.count === 0) { alert('Nenhum texto detectado.'); return }
+            alert(`${result.count} textos detectados! Vetorize primeiro, depois os textos serão adicionados como <text>.`)
+          } catch (e) { alert('Erro OCR: ' + (e instanceof Error ? e.message : e)) }
+        }}
+        className="w-full text-[0.65rem] py-1.5 border border-cyan-200 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-lg font-medium transition-colors"
+      >
+        🔤 Extrair texto (OCR)
+      </button>
+
+      {/* Auto-detect */}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={async () => {
+          const file = useVectorizeStore.getState().currentFile
+          if (!file) return
+          try {
+            const result = await analyzeImage(file)
+            const s = result.recommended_settings as Record<string, string | number>
+            if (s.mode) setValue('mode', s.mode as 'lineart' | 'icon' | 'vtracer')
+            if (s.threshold) setValue('threshold', Number(s.threshold))
+            if (s.dilate) setValue('dilate', Number(s.dilate))
+            if (s.minArea) setValue('minArea', Number(s.minArea))
+            if (s.vtColormode) setValue('vtColormode', s.vtColormode as 'color' | 'binary')
+            if (s.vtColorPrecision) setValue('vtColorPrecision', Number(s.vtColorPrecision))
+            if (s.vtFilterSpeckle) setValue('vtFilterSpeckle', Number(s.vtFilterSpeckle))
+          } catch (e) {
+            console.warn('Auto-detect failed:', e)
+          }
+        }}
+        className="w-full text-xs py-1.5 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium transition-colors"
+      >
+        🔍 Auto-detectar tipo
+      </button>
 
       <Button type="submit" disabled={disabled} className="w-full justify-center">
         {loading ? '⟳ Processando…' : '▶ Vetorizar'}

@@ -10,7 +10,24 @@ import {
   Copy, Ungroup, Eye, EyeOff, Trash2, Download,
   Highlighter, Square, X, Eraser,
   AlignHorizontalJustifyCenter, Type,
+  AlignStartVertical, AlignEndVertical, AlignCenterVertical,
+  AlignStartHorizontal, AlignEndHorizontal, AlignCenterHorizontal,
+  AlignHorizontalSpaceBetween, AlignVerticalSpaceBetween,
+  Grid3x3, Merge, Minus, CircleDot, Slice,
 } from 'lucide-react'
+import {
+  alignLeft, alignRight, alignTop, alignBottom,
+  alignCenterH, alignCenterV, distributeH, distributeV,
+} from '../lib/alignment'
+import { IconBrowser } from '@/features/icons/components/IconBrowser'
+import { LayersPanel } from './LayersPanel'
+import { ComponentsPanel } from './ComponentsPanel'
+import { ColorPaletteManager } from './ColorPaletteManager'
+import { GradientPicker } from './GradientPicker'
+import { EffectsPanel } from './EffectsPanel'
+import { StrokePanel } from './StrokePanel'
+import { TypographyPanel } from './TypographyPanel'
+import { TransformPanel } from './TransformPanel'
 
 interface RightPanelProps {
   editorRef: ReturnType<typeof useEditor>
@@ -78,7 +95,7 @@ export function RightPanel({
   editorRef, svgData, fileLoaded, disabled, loading, onSubmit,
   hlOn, tpOn, onToggleHL, onToggleTP, canVectorize = true,
 }: RightPanelProps) {
-  const { selectedColor, mode, selectedEl, setColor, setMode, setSelectedEl } = usePaletteStore()
+  const { selectedColor, mode, selectedEl, selectedEls, setColor, setMode, setSelectedEl, setSelectedEls, gridEnabled, gridSize, setGridEnabled, setGridSize } = usePaletteStore()
   const [elements, setElements]   = useState<Element[]>([])
   const [hidden, setHidden]       = useState<Set<number>>(new Set())
   const [checked, setChecked]     = useState<Set<number>>(new Set())
@@ -87,15 +104,10 @@ export function RightPanel({
   const [locked, setLocked]       = useState(true)
   const [bgColor, setBgColor]     = useState('none')
 
-  // Controlled stroke state — updates when selectedEl changes
-  const [strokeColor, setStrokeColor] = useState('#000000')
-  const [strokeWidth, setStrokeWidth] = useState(0)
-  const [opacity, setOpacity]         = useState(1)
+  const [opacity, setOpacity] = useState(1)
 
   useEffect(() => {
     if (selectedEl) {
-      setStrokeColor(selectedEl.getAttribute('stroke') ?? '#000000')
-      setStrokeWidth(parseFloat(selectedEl.getAttribute('stroke-width') ?? '0'))
       setOpacity(parseFloat(selectedEl.getAttribute('opacity') ?? '1'))
     }
   }, [selectedEl])
@@ -174,7 +186,10 @@ export function RightPanel({
     else               { next.add(i);    el.setAttribute('visibility', 'hidden') }
     setHidden(next)
   }
-  const deleteEl = (el: Element) => { el.remove(); refreshElements(); if (selectedEl === el) setSelectedEl(null) }
+  const deleteEl = (el: Element) => {
+    editorRef.deleteSelected(el); refreshElements()
+    if (selectedEls.includes(el)) setSelectedEls(selectedEls.filter(e => e !== el))
+  }
 
   // ── Multi-select ──────────────────────────────────────────────────────────
   const toggleCheck = (i: number) => { const n = new Set(checked); n.has(i) ? n.delete(i) : n.add(i); setChecked(n) }
@@ -229,28 +244,51 @@ export function RightPanel({
                 className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
               >Sem fundo</button>
             </div>
+            {/* Background pattern presets */}
+            <div className="flex gap-1 mt-1.5">
+              {[
+                { label: 'Branco', bg: '#ffffff' },
+                { label: 'Preto', bg: '#000000' },
+                { label: 'Cinza', bg: '#f0f0f0' },
+                { label: 'Bege', bg: '#faf0e6' },
+                { label: 'Azul', bg: '#e8f4fd' },
+              ].map(p => (
+                <button key={p.label}
+                  onClick={() => { setBgColor(p.bg); editorRef.setBackground(p.bg) }}
+                  className="w-5 h-5 rounded border border-gray-200 cursor-pointer hover:scale-110 transition-transform"
+                  style={{ background: p.bg }}
+                  title={p.label}
+                />
+              ))}
+            </div>
           </Section>
 
           {/* Seleção */}
           {selectedEl && (
-            <Section title="Seleção" defaultOpen>
+            <Section title="Posição" defaultOpen>
+              <TransformPanel el={selectedEl} editorRef={editorRef} />
+              <button onClick={() => editorRef.zoomToElements(selectedEls)}
+                className="w-full mt-1.5 text-[0.65rem] py-1 border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium transition-colors">
+                Zoom na seleção
+              </button>
+            </Section>
+          )}
+
+          {selectedEl && (
+            <Section title="Aparência" defaultOpen>
               <div className="space-y-2">
-                {/* Fill */}
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-500 w-10 shrink-0">Cor</label>
-                  <input
-                    type="color"
-                    value={selFill?.match(/^#[0-9a-f]{6}$/i) ? selFill : '#ffffff'}
-                    onChange={e => editorRef.paint(selectedEl, e.target.value, false)}
-                    className="w-7 h-7 rounded border border-gray-200 cursor-pointer"
-                  />
-                  <span className="text-xs text-gray-400 font-mono flex-1 truncate">{selFill}</span>
-                  <Tooltip label="Excluir elemento">
-                    <button onClick={() => deleteEl(selectedEl)}
-                      className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
-                      <Trash2 size={12} />
-                    </button>
-                  </Tooltip>
+                {/* Fill (solid / linear gradient / radial gradient) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-gray-500 font-medium">Preenchimento</label>
+                    <Tooltip label="Excluir elemento">
+                      <button onClick={() => deleteEl(selectedEl)}
+                        className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
+                        <Trash2 size={12} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                  <GradientPicker el={selectedEl} editorRef={editorRef} />
                 </div>
 
                 {/* Opacity */}
@@ -269,75 +307,52 @@ export function RightPanel({
                   <span className="text-xs text-gray-400 w-8 text-right">{Math.round(opacity * 100)}%</span>
                 </div>
 
-                {/* Stroke */}
+                {/* Stroke panel */}
+                <StrokePanel el={selectedEl} editorRef={editorRef} />
+
+                {/* Rotation */}
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-500 w-10 shrink-0">Borda</label>
+                  <label className="text-xs text-gray-500 w-10 shrink-0">Girar</label>
                   <input
-                    type="color"
-                    value={strokeColor}
+                    type="range" min={-180} max={180} step={1}
+                    defaultValue={0}
+                    key={selectedEl?.getAttribute('data-region') ?? ''}
                     onChange={e => {
-                      setStrokeColor(e.target.value)
-                      selectedEl.setAttribute('stroke', e.target.value)
-                      if (strokeWidth === 0) {
-                        const w = 1; setStrokeWidth(w)
-                        selectedEl.setAttribute('stroke-width', String(w))
-                      }
+                      const deg = parseInt(e.target.value)
+                      const el = selectedEl
+                      if (!el) return
+                      // Get element center via bounding box
+                      const svg = editorRef.getSvg()
+                      const vb = editorRef.vbRef.current
+                      if (!svg || !vb) return
+                      const svgR = svg.getBoundingClientRect()
+                      const er = el.getBoundingClientRect()
+                      const cx = vb.x + (er.left + er.width / 2 - svgR.left) / svgR.width * vb.w
+                      const cy = vb.y + (er.top + er.height / 2 - svgR.top) / svgR.height * vb.h
+                      // Remove old rotation, compose new
+                      const base = el.getAttribute('data-base-transform') ?? el.getAttribute('transform') ?? ''
+                      if (!el.getAttribute('data-base-transform')) el.setAttribute('data-base-transform', base)
+                      const tf = deg !== 0
+                        ? `rotate(${deg}, ${cx.toFixed(1)}, ${cy.toFixed(1)}) ${base}`.trim()
+                        : base
+                      el.setAttribute('transform', tf || '')
                     }}
-                    className="w-7 h-7 rounded border border-gray-200 cursor-pointer"
+                    className="flex-1 h-1.5 accent-blue-600"
                   />
-                  <input
-                    type="number" min={0} max={20} step={0.5}
-                    value={strokeWidth}
-                    onChange={e => {
-                      const v = parseFloat(e.target.value) || 0
-                      setStrokeWidth(v)
-                      selectedEl.setAttribute('stroke-width', String(v))
-                    }}
-                    className="w-14 text-xs border border-gray-200 rounded px-1.5 py-1 text-center"
-                    placeholder="px"
-                  />
+                  <span className="text-[0.6rem] text-gray-400 w-8 text-right">°</span>
                 </div>
 
-                {/* Text properties */}
+                {/* Typography panel (text elements) */}
                 {isText && (
-                  <div className="space-y-1.5 pt-1 border-t border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <Type size={11} className="text-gray-400 shrink-0" />
-                      <select
-                        defaultValue={selectedEl.getAttribute('font-family') ?? 'sans-serif'}
-                        onChange={e => selectedEl.setAttribute('font-family', e.target.value)}
-                        className="flex-1 text-xs border border-gray-200 rounded px-1.5 py-1"
-                      >
-                        <option value="sans-serif">Sans-serif</option>
-                        <option value="serif">Serif</option>
-                        <option value="monospace">Monospace</option>
-                        <option value="Arial">Arial</option>
-                        <option value="Georgia">Georgia</option>
-                        <option value="Impact">Impact</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-400 w-10 shrink-0">Tam.</label>
-                      <input
-                        type="number" min={4} max={500}
-                        defaultValue={parseFloat(selectedEl.getAttribute('font-size') ?? '16')}
-                        onChange={e => selectedEl.setAttribute('font-size', e.target.value)}
-                        className="w-16 text-xs border border-gray-200 rounded px-1.5 py-1 text-center"
-                      />
-                      <select
-                        defaultValue={selectedEl.getAttribute('font-weight') ?? 'normal'}
-                        onChange={e => selectedEl.setAttribute('font-weight', e.target.value)}
-                        className="flex-1 text-xs border border-gray-200 rounded px-1.5 py-1"
-                      >
-                        <option value="normal">Normal</option>
-                        <option value="bold">Bold</option>
-                        <option value="300">Light</option>
-                        <option value="700">Bold</option>
-                        <option value="900">Black</option>
-                      </select>
-                    </div>
+                  <div className="pt-1 border-t border-gray-100">
+                    <TypographyPanel el={selectedEl} editorRef={editorRef} />
                   </div>
                 )}
+
+                {/* Effects */}
+                <div className="pt-1 border-t border-gray-100">
+                  <EffectsPanel el={selectedEl} editorRef={editorRef} />
+                </div>
 
                 {/* Ordering + actions */}
                 <div className="flex gap-1 pt-1">
@@ -390,39 +405,135 @@ export function RightPanel({
             </Section>
           )}
 
+          {/* Booleanas + Alinhamento — visible when 2+ elements selected */}
+          {selectedEls.length >= 2 && (
+            <Section title="Booleanas" defaultOpen>
+              <div className="flex gap-1 flex-wrap">
+                <Tooltip label="Unir (union)">
+                  <button onClick={async () => { const r = await editorRef.booleanOp(selectedEls, 'unite'); if (r) { setSelectedEl(r); refreshElements() } }}
+                    className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors text-xs font-medium flex items-center gap-1">
+                    <Merge size={13} /> Unir
+                  </button>
+                </Tooltip>
+                <Tooltip label="Subtrair">
+                  <button onClick={async () => { const r = await editorRef.booleanOp(selectedEls, 'subtract'); if (r) { setSelectedEl(r); refreshElements() } }}
+                    className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors text-xs font-medium flex items-center gap-1">
+                    <Minus size={13} /> Subtrair
+                  </button>
+                </Tooltip>
+                <Tooltip label="Interseção">
+                  <button onClick={async () => { const r = await editorRef.booleanOp(selectedEls, 'intersect'); if (r) { setSelectedEl(r); refreshElements() } }}
+                    className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors text-xs font-medium flex items-center gap-1">
+                    <CircleDot size={13} /> Interseção
+                  </button>
+                </Tooltip>
+                <Tooltip label="Excluir">
+                  <button onClick={async () => { const r = await editorRef.booleanOp(selectedEls, 'exclude'); if (r) { setSelectedEl(r); refreshElements() } }}
+                    className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors text-xs font-medium flex items-center gap-1">
+                    <Slice size={13} /> Excluir
+                  </button>
+                </Tooltip>
+                {selectedEls.length === 2 && (
+                  <Tooltip label="Máscara de recorte (1° = conteúdo, 2° = máscara)">
+                    <button onClick={async () => {
+                      const { applyClipMask } = await import('../lib/clipMask')
+                      const svg = editorRef.getSvg()
+                      if (!svg) return
+                      applyClipMask(selectedEls[0], selectedEls[1], svg)
+                      setSelectedEl(selectedEls[0]); refreshElements()
+                    }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors text-xs font-medium flex items-center gap-1">
+                      Clip Mask
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+              {/* Path simplify */}
+              {selectedEls.some(e => e.tagName === 'path') && (
+                <button onClick={async () => {
+                  const { simplifyPathElement } = await import('../lib/pathSimplify')
+                  let total = 0
+                  for (const el of selectedEls) {
+                    if (el.tagName === 'path') {
+                      editorRef.pushUndoAttrs(el, [['d', el.getAttribute('d')]])
+                      total += simplifyPathElement(el, 2)
+                    }
+                  }
+                  if (total > 0) alert(`${total} nós removidos`)
+                  else alert('Path já simplificado')
+                }}
+                  className="w-full mt-1 text-[0.65rem] py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg font-medium transition-colors">
+                  Simplificar paths ({selectedEls.filter(e => e.tagName === 'path').length})
+                </button>
+              )}
+            </Section>
+          )}
+
+          {selectedEls.length >= 2 && (
+            <Section title="Alinhamento" defaultOpen>
+              <div className="space-y-2">
+                <div className="flex gap-1 flex-wrap">
+                  <Tooltip label="Alinhar à esquerda">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignLeft(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignStartVertical size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Centro horizontal">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignCenterH(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignCenterVertical size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Alinhar à direita">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignRight(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignEndVertical size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Alinhar ao topo">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignTop(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignStartHorizontal size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Centro vertical">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignCenterV(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignCenterHorizontal size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Alinhar ao rodapé">
+                    <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) alignBottom(selectedEls, svg, vb) }}
+                      className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <AlignEndHorizontal size={13} />
+                    </button>
+                  </Tooltip>
+                </div>
+                {selectedEls.length >= 3 && (
+                  <div className="flex gap-1">
+                    <Tooltip label="Distribuir horizontalmente">
+                      <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) distributeH(selectedEls, svg, vb) }}
+                        className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                        <AlignHorizontalSpaceBetween size={13} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Distribuir verticalmente">
+                      <button onClick={() => { const svg = editorRef.getSvg(); const vb = editorRef.vbRef.current; if (svg && vb) distributeV(selectedEls, svg, vb) }}
+                        className="p-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+                        <AlignVerticalSpaceBetween size={13} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+
           {/* Cores */}
           <Section title="Cores">
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {COLORS.map(c => (
-                <Tooltip key={c} label={c}>
-                  <button
-                    onClick={() => {
-                      if (selectedEl && mode === 'select') editorRef.paint(selectedEl, c, false)
-                      else setColor(c)
-                    }}
-                    className={cn(
-                      'w-6 h-6 rounded-full border-[2.5px] transition-transform shrink-0',
-                      selectedColor === c && mode === 'paint'
-                        ? 'border-gray-900 scale-110 shadow-[0_0_0_2px_white_inset]'
-                        : 'border-transparent hover:scale-110',
-                    )}
-                    style={{ background: c }}
-                  />
-                </Tooltip>
-              ))}
-              <Tooltip label="Cor personalizada">
-                <input
-                  type="color" value={selectedColor}
-                  onChange={e => {
-                    if (selectedEl && mode === 'select') editorRef.paint(selectedEl, e.target.value, false)
-                    else setColor(e.target.value)
-                  }}
-                  className="w-6 h-6 p-0.5 border-2 border-gray-200 rounded-full cursor-pointer bg-transparent shrink-0"
-                />
-              </Tooltip>
-            </div>
-
-            <div className="flex gap-1.5 flex-wrap">
+            <ColorPaletteManager />
+            <div className="flex gap-1.5 flex-wrap mt-2">
               <Tooltip label="Borracha">
                 <button
                   onClick={() => setMode(mode === 'erase' ? 'paint' : 'erase')}
@@ -482,24 +593,90 @@ export function RightPanel({
 
           {/* Exportar */}
           <Section title="Exportar" defaultOpen={false}>
-            <div className="flex gap-1.5 flex-wrap">
-              <button onClick={dlSvg}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                <Download size={12} /> SVG
-              </button>
-              <button onClick={() => dlPng(false)}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                <Download size={12} /> PNG
-              </button>
-              <button onClick={() => dlPng(true)}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                <Download size={12} /> PNG transp.
-              </button>
+            <div className="space-y-2">
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={dlSvg}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
+                  <Download size={12} /> SVG
+                </button>
+                <button onClick={async () => {
+                  const { optimizeSvg, downloadBlob } = await import('../lib/exportUtils')
+                  const el = editorRef.getSvg(); if (!el) return
+                  const clone = el.cloneNode(true) as SVGSVGElement
+                  clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
+                  const opt = await optimizeSvg(new XMLSerializer().serializeToString(clone))
+                  downloadBlob(new Blob([opt], { type: 'image/svg+xml' }), 'otimizado.svg')
+                }}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 font-medium text-blue-700">
+                  <Download size={12} /> SVG otim.
+                </button>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {[1, 2, 3, 4].map(s => (
+                  <button key={s} onClick={async () => {
+                    const { exportPng, downloadBlob } = await import('../lib/exportUtils')
+                    const el = editorRef.getSvg(), origVb = editorRef.origVbRef.current, curVb = editorRef.vbRef.current
+                    if (!el || !origVb || !curVb) return
+                    const blob = await exportPng(el, origVb, curVb, s, false)
+                    downloadBlob(blob, `vetorizado-${s}x.png`)
+                  }}
+                    className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
+                    <Download size={10} /> PNG {s}x
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => dlPng(true)}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
+                  <Download size={12} /> PNG transp.
+                </button>
+                <button onClick={async () => {
+                  const { exportPdf, downloadBlob } = await import('../lib/exportUtils')
+                  const el = editorRef.getSvg(), origVb = editorRef.origVbRef.current, curVb = editorRef.vbRef.current
+                  if (!el || !origVb || !curVb) return
+                  const blob = await exportPdf(el, origVb, curVb)
+                  downloadBlob(blob, 'vetorizado.pdf')
+                }}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
+                  <Download size={12} /> PDF
+                </button>
+                <button onClick={async () => {
+                  const { copySvgToClipboard } = await import('../lib/exportUtils')
+                  const el = editorRef.getSvg(); if (!el) return
+                  await copySvgToClipboard(el, true)
+                  alert('SVG copiado para a área de transferência!')
+                }}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
+                  📋 Copiar SVG
+                </button>
+                {selectedEls.length > 0 && (
+                  <button onClick={async () => {
+                    const { exportSelectedSvg, downloadBlob } = await import('../lib/exportUtils')
+                    const el = editorRef.getSvg(); const vb = editorRef.vbRef.current
+                    if (!el || !vb) return
+                    const svgStr = exportSelectedSvg(selectedEls, el, vb)
+                    downloadBlob(new Blob([svgStr], { type: 'image/svg+xml' }), 'selecao.svg')
+                  }}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 font-medium text-green-700">
+                    <Download size={12} /> Exportar seleção
+                  </button>
+                )}
+              </div>
             </div>
           </Section>
 
-          {/* Elementos */}
-          <Section title={`Elementos (${elements.length})`} defaultOpen={false}>
+          {/* Componentes */}
+          <Section title="Componentes" defaultOpen={false}>
+            <ComponentsPanel editorRef={editorRef} />
+          </Section>
+
+          {/* Ícones */}
+          <Section title="Ícones" defaultOpen={false}>
+            <IconBrowser editorRef={editorRef} />
+          </Section>
+
+          {/* Camadas (drag to reorder) */}
+          <Section title={`Camadas (${elements.length})`} defaultOpen={false}>
             {checked.size > 0 && (
               <div className="flex gap-1 mb-2 flex-wrap items-center">
                 <span className="text-[0.65rem] text-gray-400">{checked.size} selecionados:</span>
@@ -521,51 +698,7 @@ export function RightPanel({
                 </button>
               </div>
             )}
-
-            <div className="space-y-0.5 max-h-52 overflow-y-auto pr-1">
-              {elements.length === 0 && <p className="text-xs text-gray-400">Nenhum elemento.</p>}
-              {elements.map((el, i) => {
-                const fill = el.getAttribute('fill') ?? '#FFFFFF'
-                const isSelected = el === selectedEl
-                const isHidden   = hidden.has(i)
-                const isChecked  = checked.has(i)
-                return (
-                  <div key={i}
-                    onClick={() => { setSelectedEl(isSelected ? null : el); setMode('select') }}
-                    className={cn(
-                      'flex items-center gap-1.5 px-1.5 py-1 rounded-lg cursor-pointer transition-colors text-xs',
-                      isSelected ? 'bg-blue-50 ring-1 ring-blue-300' : 'hover:bg-gray-50',
-                      isHidden && 'opacity-40',
-                    )}
-                  >
-                    <input type="checkbox" checked={isChecked}
-                      onClick={e => e.stopPropagation()}
-                      onChange={() => toggleCheck(i)}
-                      className="w-3 h-3 shrink-0 accent-blue-600" />
-                    <div className="w-4 h-4 rounded-sm border border-gray-200 shrink-0"
-                      style={{
-                        background: fill === '#FFFFFF' || fill === 'none' ? 'transparent' : fill,
-                        backgroundImage: fill === '#FFFFFF' || fill === 'none'
-                          ? 'repeating-conic-gradient(#ddd 0% 25%, transparent 0% 50%)' : 'none',
-                        backgroundSize: '6px 6px',
-                      }} />
-                    <span className="text-gray-600 truncate flex-1">{elLabel(el, i)}</span>
-                    <Tooltip label={isHidden ? 'Mostrar' : 'Ocultar'}>
-                      <button onClick={e => { e.stopPropagation(); toggleVisibility(i, el) }}
-                        className="text-gray-300 hover:text-gray-600 p-0.5">
-                        {isHidden ? <EyeOff size={11} /> : <Eye size={11} />}
-                      </button>
-                    </Tooltip>
-                    <Tooltip label="Excluir">
-                      <button onClick={e => { e.stopPropagation(); deleteEl(el) }}
-                        className="text-gray-300 hover:text-red-500 p-0.5">
-                        <Trash2 size={11} />
-                      </button>
-                    </Tooltip>
-                  </div>
-                )
-              })}
-            </div>
+            <LayersPanel elements={elements} editorRef={editorRef} onRefresh={refreshElements} />
           </Section>
         </>
       )}

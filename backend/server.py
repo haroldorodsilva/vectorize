@@ -28,8 +28,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ALLOWED  = {"image/png", "image/jpeg", "image/webp", "image/bmp"}
+ALLOWED  = {"image/png", "image/jpeg", "image/webp", "image/bmp", "image/heic", "image/heif", "image/avif"}
 MAX_SIZE = 20 * 1024 * 1024
+
+# Register HEIF/HEIC support if available
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 
 @app.get("/health")
@@ -40,7 +47,8 @@ async def health():
 @app.post("/vectorize")
 async def api_vectorize(
     file:            UploadFile = File(...),
-    mode:            str   = Form("lineart"),   # "lineart" | "icon" | "vtracer"
+    mode:            str   = Form("lineart"),   # "lineart" | "icon" | "vtracer" | "deep_edges"
+    edge_detector:   str   = Form("enhanced_canny"),  # "canny" | "hed" | "enhanced_canny"
     line_threshold:  int   = Form(170),
     dilate_radius:   int   = Form(1),
     min_area:        int   = Form(10),
@@ -72,6 +80,7 @@ async def api_vectorize(
         simplify_tolerance=simplify,
         include_lineart=include_lineart,
         mode=mode,
+        edge_detector=edge_detector,
         num_colors=num_colors,
         vtracer_colormode=vtracer_colormode,
         vtracer_filter_speckle=vtracer_filter_speckle,
@@ -118,4 +127,82 @@ async def api_download(
         media_type="image/svg+xml",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# ── Phase 10: Advanced preprocessing endpoints ──────────────────────────────
+
+@app.post("/preprocess/remove-bg")
+async def api_remove_bg(file: UploadFile = File(...)):
+    """Remove background from image. Returns PNG with transparency."""
+    if file.content_type not in ALLOWED:
+        raise HTTPException(400, f"Tipo não suportado: {file.content_type}")
+
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    try:
+        from vectorizer.background_removal import remove_background
+        result = remove_background(data)
+        return Response(content=result, media_type="image/png")
+    except ImportError:
+        raise HTTPException(501, "rembg não instalado. Execute: pip install rembg")
+    except Exception as e:
+        raise HTTPException(500, f"Erro na remoção de fundo: {e}")
+
+
+@app.post("/preprocess/upscale")
+async def api_upscale(
+    file: UploadFile = File(...),
+    scale: int = Form(2),
+):
+    """Upscale image by 2x or 4x using Real-ESRGAN (or Pillow fallback)."""
+    if file.content_type not in ALLOWED:
+        raise HTTPException(400, f"Tipo não suportado: {file.content_type}")
+
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    try:
+        from vectorizer.upscale import upscale_image
+        result = upscale_image(data, scale)
+        return Response(content=result, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(500, f"Erro no upscale: {e}")
+
+
+@app.post("/analyze")
+async def api_analyze(file: UploadFile = File(...)):
+    """Analyze image and return type + recommended vectorization settings."""
+    if file.content_type not in ALLOWED:
+        raise HTTPException(400, f"Tipo não suportado: {file.content_type}")
+
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    try:
+        from vectorizer.image_classifier import classify_image
+        return classify_image(data)
+    except Exception as e:
+        raise HTTPException(500, f"Erro na análise: {e}")
+
+
+@app.post("/extract-text")
+async def api_extract_text(file: UploadFile = File(...)):
+    """Extract text from image using OCR. Returns text regions with bounding boxes."""
+    if file.content_type not in ALLOWED:
+        raise HTTPException(400, f"Tipo não suportado: {file.content_type}")
+
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    try:
+        from vectorizer.ocr import extract_text
+        regions = extract_text(data)
+        return {"regions": regions, "count": len(regions)}
+    except Exception as e:
+        raise HTTPException(500, f"Erro no OCR: {e}")
 

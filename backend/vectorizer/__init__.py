@@ -43,6 +43,10 @@ def vectorize(image_bytes: bytes, config: VectorizerConfig | None = None) -> dic
     if mode == "icon":
         from .binarize import binarize_color_edges
         line_mask = binarize_color_edges(color_img, config)
+    elif mode == "deep_edges":
+        from .deep_edges import detect_edges_deep
+        edge_method = getattr(config, "edge_detector", "enhanced_canny")
+        line_mask = detect_edges_deep(color_img, edge_method)
     else:
         # Etapa 2: Detecção de linhas (lineart padrão)
         line_mask = binarize(gray, config)

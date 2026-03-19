@@ -7,6 +7,11 @@ import { RightPanel }          from '@/features/editor/components/RightPanel'
 import { ConfirmModal }        from '@/shared/components/ui/ConfirmModal'
 import { useEditor }           from '@/features/editor/hooks/useEditor'
 import { useVectorizeStore }   from '@/features/vectorize/store'
+import { usePaletteStore }     from '@/features/palette/store'
+import { ShortcutsButton }     from '@/features/editor/components/ShortcutsModal'
+import { SvgCodeEditor }       from '@/features/editor/components/SvgCodeEditor'
+import { useAutoSave, getAutoSave, clearAutoSave } from '@/features/editor/hooks/useAutoSave'
+import { PagesBar, type PageDef } from '@/features/editor/components/PagesBar'
 import type { ControlsValues } from '@/features/vectorize/schemas'
 
 const isSvgFile = (f: File) =>
@@ -15,6 +20,26 @@ const isSvgFile = (f: File) =>
 export function App() {
   const { isProcessing, svgData, run, setSvgData } = useVectorizeStore()
   const editorRef = useEditor()
+
+  // Auto-save every 30s
+  useAutoSave(editorRef, !!svgData)
+
+  // Check for auto-save on mount
+  useEffect(() => {
+    const saved = getAutoSave()
+    if (saved && !svgData) {
+      const age = Date.now() - saved.timestamp
+      if (age < 24 * 60 * 60 * 1000) { // Less than 24h old
+        const restore = confirm(`Encontrado trabalho não salvo (${new Date(saved.timestamp).toLocaleString()}). Restaurar?`)
+        if (restore) {
+          setSvgData({ svg: saved.svg, regions: [], width: 0, height: 0, processing_time_ms: 0 })
+          setFileLoaded(true); setPreviewUrl(null)
+        } else {
+          clearAutoSave()
+        }
+      }
+    }
+  }, [])
 
   const [fileLoaded, setFileLoaded]   = useState(false)
   const [previewUrl, setPreviewUrl]   = useState<string | null>(null)
@@ -26,6 +51,76 @@ export function App() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const pendingFile = useRef<File | null>(null)
   const [compareOn, setCompareOn]     = useState(false)
+
+  // Multi-page support
+  const [pages, setPages] = useState<PageDef[]>([])
+  const [activePageIdx, setActivePageIdx] = useState(0)
+
+  const serializeCurrentPage = (): string => {
+    const svg = editorRef.getSvg()
+    return svg ? new XMLSerializer().serializeToString(svg) : ''
+  }
+
+  const switchPage = (idx: number) => {
+    if (idx === activePageIdx) return
+    // Save current page
+    setPages(prev => prev.map((p, i) => i === activePageIdx ? { ...p, svgContent: serializeCurrentPage() } : p))
+    setActivePageIdx(idx)
+    // Load target page
+    const target = pages[idx]
+    if (target) {
+      useVectorizeStore.getState().setSvgData({
+        svg: target.svgContent,
+        regions: [], width: 0, height: 0, processing_time_ms: 0,
+      })
+    }
+  }
+
+  const addPage = () => {
+    // Save current
+    setPages(prev => {
+      const updated = prev.map((p, i) => i === activePageIdx ? { ...p, svgContent: serializeCurrentPage() } : p)
+      const newPage: PageDef = {
+        id: `page-${Date.now().toString(36)}`,
+        name: `Página ${updated.length + 1}`,
+        svgContent: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"></svg>',
+      }
+      return [...updated, newPage]
+    })
+    // Switch to new page
+    setTimeout(() => switchPage(pages.length), 0)
+  }
+
+  const deletePage = (idx: number) => {
+    if (pages.length <= 1) return
+    setPages(prev => prev.filter((_, i) => i !== idx))
+    if (activePageIdx >= idx && activePageIdx > 0) setActivePageIdx(activePageIdx - 1)
+  }
+
+  const duplicatePage = (idx: number) => {
+    const content = idx === activePageIdx ? serializeCurrentPage() : pages[idx].svgContent
+    setPages(prev => {
+      const updated = prev.map((p, i) => i === activePageIdx ? { ...p, svgContent: serializeCurrentPage() } : p)
+      const dup: PageDef = {
+        id: `page-${Date.now().toString(36)}`,
+        name: `${updated[idx].name} (cópia)`,
+        svgContent: content,
+      }
+      return [...updated.slice(0, idx + 1), dup, ...updated.slice(idx + 1)]
+    })
+  }
+
+  const renamePage = (idx: number, name: string) => {
+    setPages(prev => prev.map((p, i) => i === idx ? { ...p, name } : p))
+  }
+
+  // Init first page when SVG loads
+  useEffect(() => {
+    if (svgData && pages.length === 0) {
+      setPages([{ id: 'page-1', name: 'Página 1', svgContent: svgData.svg }])
+      setActivePageIdx(0)
+    }
+  }, [svgData])
 
   useEffect(() => {
     if (svgData) {
@@ -197,10 +292,47 @@ export function App() {
           <label className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer font-medium text-gray-700 transition-colors select-none">
             ⊞ Importar imagem
             <input
-              type="file" accept="image/*" className="hidden"
+              type="file" accept="image/*,.svg" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) importImageToCanvas(f); e.target.value = '' }}
             />
           </label>
+        )}
+        {svgData && (
+          <button
+            onClick={async () => {
+              const url = prompt('URL do SVG ou imagem:')
+              if (!url) return
+              try {
+                const res = await fetch(url)
+                const blob = await res.blob()
+                const file = new File([blob], 'import.' + (blob.type.includes('svg') ? 'svg' : 'png'), { type: blob.type })
+                if (blob.type.includes('svg')) {
+                  const text = await blob.text()
+                  const svg = editorRef.getSvg()
+                  if (!svg) return
+                  const parser = new DOMParser()
+                  const doc = parser.parseFromString(text, 'image/svg+xml')
+                  const svgRoot = doc.querySelector('svg')
+                  if (svgRoot) {
+                    const ns = 'http://www.w3.org/2000/svg'
+                    const g = document.createElementNS(ns, 'g') as SVGGElement
+                    g.setAttribute('data-region', String(Date.now()))
+                    g.setAttribute('data-drawn', '1')
+                    for (const child of Array.from(svgRoot.children)) {
+                      g.appendChild(document.importNode(child, true))
+                    }
+                    svg.appendChild(g)
+                    editorRef.pushUndo(g, null)
+                  }
+                } else {
+                  importImageToCanvas(file)
+                }
+              } catch { alert('Erro ao importar URL') }
+            }}
+            className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium text-gray-700 transition-colors select-none"
+          >
+            🔗 URL
+          </button>
         )}
 
         {/* New blank canvas */}
@@ -239,7 +371,19 @@ export function App() {
         )}
 
         <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-400 hidden sm:flex">
-          Scroll = zoom · Drag = mover · R/O/L/T = desenhar · Del = excluir · Ctrl+Z = desfazer
+          <SvgCodeEditor editorRef={editorRef} />
+          <ShortcutsButton />
+          <button
+            onClick={() => {
+              const s = usePaletteStore.getState()
+              s.setDarkMode(!s.darkMode)
+              document.documentElement.classList.toggle('dark', !s.darkMode)
+            }}
+            className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-gray-600"
+            title="Dark mode"
+          >
+            {usePaletteStore.getState().darkMode ? '☀' : '🌙'}
+          </button>
         </div>
       </header>
 
@@ -307,15 +451,29 @@ export function App() {
 
           ) : (
             // ── SVG editor full area ───────────────────────────────────────
-            <div className="flex-1 relative">
-              <SvgEditor
-                svgContent={svgData.svg}
-                editorRef={editorRef}
-                tpOn={tpOn}
-                cropActive={cropActive}
-                onCropConfirm={(sel, ov) => { const ok = editorRef.confirmCrop(sel, ov); if (ok) setCropActive(false); return ok }}
-                onCropCancel={() => setCropActive(false)}
-              />
+            <div className="flex-1 relative flex flex-col">
+              <div className="flex-1 relative">
+                <SvgEditor
+                  svgContent={svgData.svg}
+                  editorRef={editorRef}
+                  tpOn={tpOn}
+                  cropActive={cropActive}
+                  onCropConfirm={(sel, ov) => { const ok = editorRef.confirmCrop(sel, ov); if (ok) setCropActive(false); return ok }}
+                  onCropCancel={() => setCropActive(false)}
+                />
+              </div>
+              {/* Pages bar */}
+              {pages.length > 0 && (
+                <PagesBar
+                  pages={pages}
+                  activePageIdx={activePageIdx}
+                  onSwitchPage={switchPage}
+                  onAddPage={addPage}
+                  onDeletePage={deletePage}
+                  onDuplicatePage={duplicatePage}
+                  onRenamePage={renamePage}
+                />
+              )}
             </div>
           )}
         </div>

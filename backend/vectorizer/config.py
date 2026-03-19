@@ -16,7 +16,8 @@ class VectorizerConfig:
     adaptive_block_size: int = 0  # 0 = auto
     output_format: str = "svg"
     # Color quantization mode
-    mode: str = "lineart"   # "lineart" | "icon" | "vtracer"
+    mode: str = "lineart"   # "lineart" | "icon" | "vtracer" | "deep_edges"
+    edge_detector: str = "canny"  # "canny" | "hed" | "enhanced_canny"
     num_colors: int = 16    # used in color mode (4–32)
     # vtracer-specific params
     vtracer_colormode: str    = "color"    # "color" | "binary"
