@@ -10,7 +10,18 @@
       "Bash(tasklist /FI \"PID eq 7440\")",
       "Bash(tasklist /FI \"PID eq 9896\")",
       "Bash(powershell -Command \"Get-Process -Id 9460,9060,7440,9896 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,MainWindowTitle\" 2>&1)",
-      "Bash(powershell -Command \"netstat -ano | Select-String '808'\" 2>&1)"
+      "Bash(powershell -Command \"netstat -ano | Select-String '808'\" 2>&1)",
+      "Bash(python:*)",
+      "Bash(npm --version)",
+      "Bash(mkdir -p backend)",
+      "Bash(mv vectorizer:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run:*)",
+      "Bash(find C:/Users/Weback/Desktop/github/vectorizer-project -not -path */node_modules/* -not -path */.git/* -type f)",
+      "mcp__ide__getDiagnostics",
+      "WebSearch"
     ]
   }
 }
