@@ -1,6 +1,39 @@
 /**
- * Export utilities: SVGO optimization, multi-scale PNG, PDF, clipboard.
+ * Export utilities: SVG, optimized SVG, multi-scale PNG, PDF, clipboard.
  */
+
+type ViewBox = { x: number; y: number; w: number; h: number }
+
+/** Download a blob as a file (appends <a> to DOM for cross-browser compat) */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/** Clone SVG element cleaned for export (no inline styles, no selection markers) */
+function cloneForExport(svgEl: SVGSVGElement, vb: ViewBox): SVGSVGElement {
+  const clone = svgEl.cloneNode(true) as SVGSVGElement
+  clone.removeAttribute('style')
+  clone.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`)
+  clone.setAttribute('width', String(Math.round(vb.w)))
+  clone.setAttribute('height', String(Math.round(vb.h)))
+  clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
+  // Remove editor-only attributes
+  clone.querySelectorAll('[data-base-transform]').forEach(el => el.removeAttribute('data-base-transform'))
+  return clone
+}
+
+/** Serialize SVG element to string */
+function serializeSvg(svgEl: SVGSVGElement): string {
+  return new XMLSerializer().serializeToString(svgEl)
+}
+
 /** Optimize SVG string with SVGO (lazy loaded) */
 export async function optimizeSvg(svgString: string): Promise<string> {
   try {
@@ -21,21 +54,28 @@ export async function optimizeSvg(svgString: string): Promise<string> {
   }
 }
 
+/** Export raw SVG */
+export function exportSvg(svgEl: SVGSVGElement, vb: ViewBox, filename = 'vetorizado.svg') {
+  const clone = cloneForExport(svgEl, vb)
+  const blob = new Blob([serializeSvg(clone)], { type: 'image/svg+xml' })
+  downloadBlob(blob, filename)
+}
+
+/** Export optimized SVG */
+export async function exportSvgOptimized(svgEl: SVGSVGElement, vb: ViewBox, filename = 'otimizado.svg') {
+  const clone = cloneForExport(svgEl, vb)
+  const optimized = await optimizeSvg(serializeSvg(clone))
+  downloadBlob(new Blob([optimized], { type: 'image/svg+xml' }), filename)
+}
+
 /** Export SVG as PNG at given scale */
 export async function exportPng(
   svgEl: SVGSVGElement,
-  _origVb: { x: number; y: number; w: number; h: number },
-  curVb: { x: number; y: number; w: number; h: number },
+  vb: ViewBox,
   scale: number = 1,
   transparent: boolean = false,
 ): Promise<Blob> {
-  // Clone and clean: remove CSS display styles that mess up export rendering
-  const clone = svgEl.cloneNode(true) as SVGSVGElement
-  clone.removeAttribute('style')
-  clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
-  clone.setAttribute('width', String(Math.round(curVb.w)))
-  clone.setAttribute('height', String(Math.round(curVb.h)))
-  clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
+  const clone = cloneForExport(svgEl, vb)
 
   if (transparent) {
     clone.querySelectorAll('[data-region]').forEach(p => {
@@ -44,9 +84,9 @@ export async function exportPng(
     })
   }
 
-  const data = new XMLSerializer().serializeToString(clone)
-  const w = Math.round(curVb.w * scale)
-  const h = Math.round(curVb.h * scale)
+  const data = serializeSvg(clone)
+  const w = Math.round(vb.w * scale)
+  const h = Math.round(vb.h * scale)
 
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }))
@@ -65,29 +105,41 @@ export async function exportPng(
   })
 }
 
+/** Export and download PNG at given scale */
+export async function exportPngDownload(
+  svgEl: SVGSVGElement,
+  vb: ViewBox,
+  scale: number = 1,
+  transparent: boolean = false,
+) {
+  const blob = await exportPng(svgEl, vb, scale, transparent)
+  const name = transparent ? 'transparente.png' : `vetorizado-${scale}x.png`
+  downloadBlob(blob, name)
+}
+
 /** Export SVG as PDF using jsPDF */
 export async function exportPdf(
   svgEl: SVGSVGElement,
-  origVb: { x: number; y: number; w: number; h: number },
-  curVb: { x: number; y: number; w: number; h: number },
-): Promise<Blob> {
+  vb: ViewBox,
+) {
   const { jsPDF } = await import('jspdf')
-  const pngBlob = await exportPng(svgEl, origVb, curVb, 2, false)
+  const pngBlob = await exportPng(svgEl, vb, 2, false)
   const pngUrl = URL.createObjectURL(pngBlob)
 
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
-      const landscape = origVb.w > origVb.h
+      const landscape = vb.w > vb.h
       const doc = new jsPDF({
         orientation: landscape ? 'landscape' : 'portrait',
         unit: 'px',
-        format: [origVb.w, origVb.h],
+        format: [vb.w, vb.h],
       })
-      doc.addImage(img, 'PNG', 0, 0, origVb.w, origVb.h)
+      doc.addImage(img, 'PNG', 0, 0, vb.w, vb.h)
       const blob = doc.output('blob')
       URL.revokeObjectURL(pngUrl)
-      resolve(blob)
+      downloadBlob(blob, 'vetorizado.pdf')
+      resolve()
     }
     img.onerror = reject
     img.src = pngUrl
@@ -98,7 +150,7 @@ export async function exportPdf(
 export async function copySvgToClipboard(svgEl: SVGSVGElement, doOptimize: boolean = true): Promise<void> {
   const clone = svgEl.cloneNode(true) as SVGSVGElement
   clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
-  let svgStr = new XMLSerializer().serializeToString(clone)
+  let svgStr = serializeSvg(clone)
   if (doOptimize) svgStr = await optimizeSvg(svgStr)
   await navigator.clipboard.writeText(svgStr)
 }
@@ -107,11 +159,10 @@ export async function copySvgToClipboard(svgEl: SVGSVGElement, doOptimize: boole
 export function exportSelectedSvg(
   els: Element[],
   svgEl: SVGSVGElement,
-  vb: { x: number; y: number; w: number; h: number },
+  vb: ViewBox,
 ): string {
   if (els.length === 0) return ''
 
-  // Compute tight bounding box of selected elements
   const svgR = svgEl.getBoundingClientRect()
   const scX = vb.w / svgR.width, scY = vb.h / svgR.height
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
@@ -129,7 +180,6 @@ export function exportSelectedSvg(
   const bx = minX - pad, by = minY - pad
   const bw = maxX - minX + pad * 2, bh = maxY - minY + pad * 2
 
-  // Build SVG with only selected elements
   const ns = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(ns, 'svg') as SVGSVGElement
   svg.setAttribute('xmlns', ns)
@@ -137,22 +187,12 @@ export function exportSelectedSvg(
   svg.setAttribute('width', String(Math.round(bw)))
   svg.setAttribute('height', String(Math.round(bh)))
 
-  // Copy defs if present
   const defs = svgEl.querySelector('defs')
   if (defs) svg.appendChild(defs.cloneNode(true))
 
-  // Clone selected elements
   for (const el of els) {
     svg.appendChild(el.cloneNode(true))
   }
 
-  return new XMLSerializer().serializeToString(svg)
-}
-
-/** Download a blob as a file */
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
+  return serializeSvg(svg)
 }

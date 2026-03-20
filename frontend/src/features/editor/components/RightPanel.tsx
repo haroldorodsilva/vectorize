@@ -7,8 +7,8 @@ import type { VectorizeResponse } from '@/shared/types'
 import type { ControlsValues } from '@/features/vectorize/schemas'
 import {
   ChevronsUp, ChevronUp, ChevronDown, ChevronsDown,
-  Copy, Ungroup, Trash2, Download,
-  Highlighter, Square, X, Eraser,
+  Copy, Ungroup, Trash2, Download, FileImage, FileText, Clipboard, Sparkles, Image, Crop,
+  Highlighter, Square, X, Eraser, Loader2,
   AlignHorizontalJustifyCenter,
   AlignStartVertical, AlignEndVertical, AlignCenterVertical,
   AlignStartHorizontal, AlignEndHorizontal, AlignCenterHorizontal,
@@ -113,54 +113,19 @@ export function RightPanel({
 
   useEffect(() => { if (svgData) refreshElements() }, [svgData, refreshElements])
 
-  // ── Download helpers ──────────────────────────────────────────────────────
-  const dlSvg = () => {
-    const el = editorRef.getSvg(), curVb = editorRef.vbRef.current
-    if (!el || !curVb) return
-    const clone = el.cloneNode(true) as SVGSVGElement
-    clone.removeAttribute('style')
-    clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
-    clone.setAttribute('width', String(Math.round(curVb.w)))
-    clone.setAttribute('height', String(Math.round(curVb.h)))
-    clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
-    const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' })
-    Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'vetorizado.svg' }).click()
+  // ── Export helpers ───────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState<string | null>(null)
+
+  const withExport = (label: string, fn: () => Promise<void> | void) => async () => {
+    setExporting(label)
+    try { await fn() }
+    catch (err) { alert(`Erro ao exportar: ${err instanceof Error ? err.message : err}`) }
+    finally { setExporting(null) }
   }
-  const dlPng = async (transparent: boolean) => {
-    const el = editorRef.getSvg(), curVb = editorRef.vbRef.current
-    if (!el || !curVb) return
 
-    // Clone and clean: remove CSS display styles that would mess up rendering
-    const clone = el.cloneNode(true) as SVGSVGElement
-    clone.removeAttribute('style')
-    clone.setAttribute('viewBox', `${curVb.x} ${curVb.y} ${curVb.w} ${curVb.h}`)
-    clone.setAttribute('width', String(Math.round(curVb.w)))
-    clone.setAttribute('height', String(Math.round(curVb.h)))
-    clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
-
-    const restored: Array<{ el: Element; f: string }> = []
-    if (transparent) {
-      clone.querySelectorAll('[data-region]').forEach(p => {
-        const f = p.getAttribute('fill')
-        if (!f || f === '#FFFFFF' || f === '#ffffff') { restored.push({ el: p, f: f ?? '#FFFFFF' }); p.setAttribute('fill', 'none') }
-      })
-    }
-
-    const data = new XMLSerializer().serializeToString(clone)
-    const w = Math.round(curVb.w), h = Math.round(curVb.h)
-    const url = URL.createObjectURL(new Blob([data], { type: 'image/svg+xml;charset=utf-8' }))
-    await new Promise<void>((res, rej) => {
-      const img = new Image()
-      img.onload = () => {
-        const cv = document.createElement('canvas'); cv.width = w; cv.height = h
-        const ctx = cv.getContext('2d')!
-        if (!transparent) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h) }
-        ctx.drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url)
-        Object.assign(document.createElement('a'), { href: cv.toDataURL('image/png'), download: transparent ? 'transparente.png' : 'vetorizado.png' }).click()
-        res()
-      }
-      img.onerror = rej; img.src = url
-    })
+  const getExportRefs = () => {
+    const el = editorRef.getSvg(), vb = editorRef.vbRef.current
+    return el && vb ? { el, vb } : null
   }
 
   // ── Resize helpers ────────────────────────────────────────────────────────
@@ -586,74 +551,99 @@ export function RightPanel({
 
           {/* Exportar */}
           <Section title="Exportar" defaultOpen={false}>
-            <div className="space-y-2">
-              <div className="flex gap-1.5 flex-wrap">
-                <button onClick={dlSvg}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                  <Download size={12} /> SVG
-                </button>
-                <button onClick={async () => {
-                  const { optimizeSvg, downloadBlob } = await import('../lib/exportUtils')
-                  const el = editorRef.getSvg(); if (!el) return
-                  const clone = el.cloneNode(true) as SVGSVGElement
-                  clone.querySelector('[data-sel]')?.removeAttribute('data-sel')
-                  const opt = await optimizeSvg(new XMLSerializer().serializeToString(clone))
-                  downloadBlob(new Blob([opt], { type: 'image/svg+xml' }), 'otimizado.svg')
-                }}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 font-medium text-blue-700">
-                  <Download size={12} /> SVG otim.
-                </button>
-              </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {[1, 2, 3, 4].map(s => (
-                  <button key={s} onClick={async () => {
-                    const { exportPng, downloadBlob } = await import('../lib/exportUtils')
-                    const el = editorRef.getSvg(), origVb = editorRef.origVbRef.current, curVb = editorRef.vbRef.current
-                    if (!el || !origVb || !curVb) return
-                    const blob = await exportPng(el, origVb, curVb, s, false)
-                    downloadBlob(blob, `vetorizado-${s}x.png`)
-                  }}
-                    className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                    <Download size={10} /> PNG {s}x
+            <div className="space-y-3">
+              {exporting && (
+                <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 rounded-lg px-2.5 py-1.5 border border-blue-200">
+                  <Loader2 size={12} className="animate-spin" />
+                  Exportando {exporting}...
+                </div>
+              )}
+
+              {/* SVG */}
+              <div>
+                <p className="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Vetor</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button disabled={!!exporting} onClick={withExport('SVG', async () => {
+                    const { exportSvg } = await import('../lib/exportUtils')
+                    const r = getExportRefs(); if (!r) return
+                    exportSvg(r.el, r.vb)
+                  })}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 transition-colors">
+                    <Download size={12} /> SVG
                   </button>
-                ))}
-              </div>
-              <div className="flex gap-1.5 flex-wrap">
-                <button onClick={() => dlPng(true)}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                  <Download size={12} /> PNG transp.
-                </button>
-                <button onClick={async () => {
-                  const { exportPdf, downloadBlob } = await import('../lib/exportUtils')
-                  const el = editorRef.getSvg(), origVb = editorRef.origVbRef.current, curVb = editorRef.vbRef.current
-                  if (!el || !origVb || !curVb) return
-                  const blob = await exportPdf(el, origVb, curVb)
-                  downloadBlob(blob, 'vetorizado.pdf')
-                }}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                  <Download size={12} /> PDF
-                </button>
-                <button onClick={async () => {
-                  const { copySvgToClipboard } = await import('../lib/exportUtils')
-                  const el = editorRef.getSvg(); if (!el) return
-                  await copySvgToClipboard(el, true)
-                  alert('SVG copiado para a área de transferência!')
-                }}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium">
-                  📋 Copiar SVG
-                </button>
-                {selectedEls.length > 0 && (
-                  <button onClick={async () => {
-                    const { exportSelectedSvg, downloadBlob } = await import('../lib/exportUtils')
-                    const el = editorRef.getSvg(); const vb = editorRef.vbRef.current
-                    if (!el || !vb) return
-                    const svgStr = exportSelectedSvg(selectedEls, el, vb)
-                    downloadBlob(new Blob([svgStr], { type: 'image/svg+xml' }), 'selecao.svg')
-                  }}
-                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 font-medium text-green-700">
-                    <Download size={12} /> Exportar seleção
+                  <button disabled={!!exporting} onClick={withExport('SVG otimizado', async () => {
+                    const { exportSvgOptimized } = await import('../lib/exportUtils')
+                    const r = getExportRefs(); if (!r) return
+                    await exportSvgOptimized(r.el, r.vb)
+                  })}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 font-medium text-blue-700 disabled:opacity-50 transition-colors">
+                    <Sparkles size={12} /> SVG otimizado
                   </button>
-                )}
+                </div>
+              </div>
+
+              {/* PNG */}
+              <div>
+                <p className="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Imagem</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[1, 2, 3, 4].map(s => (
+                    <button key={s} disabled={!!exporting} onClick={withExport(`PNG ${s}x`, async () => {
+                      const { exportPngDownload } = await import('../lib/exportUtils')
+                      const r = getExportRefs(); if (!r) return
+                      await exportPngDownload(r.el, r.vb, s, false)
+                    })}
+                      className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 transition-colors">
+                      <FileImage size={10} /> {s}x
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 flex-wrap mt-1.5">
+                  <button disabled={!!exporting} onClick={withExport('PNG transparente', async () => {
+                    const { exportPngDownload } = await import('../lib/exportUtils')
+                    const r = getExportRefs(); if (!r) return
+                    await exportPngDownload(r.el, r.vb, 1, true)
+                  })}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 transition-colors">
+                    <Image size={12} /> Transparente
+                  </button>
+                  <button disabled={!!exporting} onClick={withExport('PDF', async () => {
+                    const { exportPdf } = await import('../lib/exportUtils')
+                    const r = getExportRefs(); if (!r) return
+                    await exportPdf(r.el, r.vb)
+                  })}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 transition-colors">
+                    <FileText size={12} /> PDF
+                  </button>
+                </div>
+              </div>
+
+              {/* Clipboard & seleção */}
+              <div>
+                <p className="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Outros</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button disabled={!!exporting} onClick={withExport('Clipboard', async () => {
+                    const { copySvgToClipboard } = await import('../lib/exportUtils')
+                    const el = editorRef.getSvg(); if (!el) return
+                    await copySvgToClipboard(el, true)
+                    alert('SVG copiado para a área de transferência!')
+                  })}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 transition-colors">
+                    <Clipboard size={12} /> Copiar SVG
+                  </button>
+                  {selectedEls.length > 0 && (
+                    <button disabled={!!exporting} onClick={withExport('Seleção', async () => {
+                      const { exportSelectedSvg, downloadBlob } = await import('../lib/exportUtils')
+                      const el = editorRef.getSvg(); const vb = editorRef.vbRef.current
+                      if (!el || !vb) return
+                      const svgStr = exportSelectedSvg(selectedEls, el, vb)
+                      if (!svgStr) return
+                      downloadBlob(new Blob([svgStr], { type: 'image/svg+xml' }), 'selecao.svg')
+                    })}
+                      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 font-medium text-green-700 disabled:opacity-50 transition-colors">
+                      <Crop size={12} /> Exportar seleção
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </Section>
