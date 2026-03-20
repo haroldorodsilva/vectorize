@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vectorizer API - Documentacao</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-light: #60a5fa;
+      --accent: #8b5cf6;
+      --success: #10b981;
+      --code-bg: #0d1117;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    a { color: var(--primary-light); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 50;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex; align-items: center; gap: 2rem;
+    }
+    nav .logo { font-weight: 800; font-size: 1.1rem; }
+    nav .logo span { color: var(--primary); }
+    nav .links { display: flex; gap: 1.5rem; font-size: 0.875rem; }
+    nav .links a { color: var(--muted); transition: color 0.2s; }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+    nav .links a.active { color: var(--primary-light); }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 5rem 2rem 4rem; }
+    h1 { font-size: 2.5rem; font-weight: 900; margin-bottom: 0.5rem; letter-spacing: -0.03em; }
+    .subtitle { color: var(--muted); margin-bottom: 3rem; font-size: 1.05rem; }
+
+    .endpoint-section { margin-bottom: 3rem; }
+    .endpoint-section h2 {
+      font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .method {
+      font-size: 0.7rem; font-weight: 800; padding: 0.2rem 0.5rem;
+      border-radius: 5px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .method-post { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+    .method-get { background: rgba(59, 130, 246, 0.15); color: var(--primary-light); }
+    .endpoint-section .desc { color: var(--muted); margin-bottom: 1rem; }
+    .endpoint-section h3 { font-size: 0.85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.5rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td code { background: var(--code-bg); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; }
+    td:first-child { font-weight: 600; font-family: monospace; color: var(--primary-light); }
+
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      margin-bottom: 1rem;
+    }
+    .code-block .key { color: var(--primary-light); }
+    .code-block .str { color: var(--success); }
+    .code-block .num { color: var(--accent); }
+    .code-block .comment { color: #6a737d; }
+
+    .divider { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="logo"><span>&#9670;</span> Vectorizer</a>
+  <div class="links">
+    <a href="index.html">Home</a>
+    <a href="api.html" class="active">API</a>
+  </div>
+</nav>
+
+<div class="container">
+  <h1>API Reference</h1>
+  <p class="subtitle">Documentacao completa dos endpoints REST do Vectorizer.</p>
+
+  <!-- POST /vectorize -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /vectorize</h2>
+    <p class="desc">Vetoriza uma imagem e retorna JSON com o SVG gerado e metadados das regioes.</p>
+
+    <h3>Parametros (multipart/form-data)</h3>
+    <table>
+      <thead><tr><th>Parametro</th><th>Tipo</th><th>Default</th><th>Descricao</th></tr></thead>
+      <tbody>
+        <tr><td>file</td><td>File</td><td>obrigatorio</td><td>Imagem (PNG, JPG, WEBP, BMP, HEIC, AVIF)</td></tr>
+        <tr><td>mode</td><td>string</td><td><code>lineart</code></td><td><code>lineart</code>, <code>icon</code>, <code>vtracer</code>, <code>deep_edges</code></td></tr>
+        <tr><td>edge_detector</td><td>string</td><td><code>enhanced_canny</code></td><td><code>canny</code>, <code>hed</code>, <code>enhanced_canny</code></td></tr>
+        <tr><td>line_threshold</td><td>int</td><td><code>170</code></td><td>Sensibilidade de deteccao de linhas (0-255)</td></tr>
+        <tr><td>dilate_radius</td><td>int</td><td><code>1</code></td><td>Raio de dilatacao para fechar gaps nas linhas</td></tr>
+        <tr><td>min_area</td><td>int</td><td><code>10</code></td><td>Area minima de regiao em pixels</td></tr>
+        <tr><td>simplify</td><td>float</td><td><code>1.5</code></td><td>Tolerancia de simplificacao Douglas-Peucker</td></tr>
+        <tr><td>max_dimension</td><td>int</td><td><code>800</code></td><td>Dimensao maxima de saida</td></tr>
+        <tr><td>include_lineart</td><td>bool</td><td><code>true</code></td><td>Incluir camada de line art no SVG</td></tr>
+        <tr><td>num_colors</td><td>int</td><td><code>16</code></td><td>Numero de cores para quantizacao (4-32)</td></tr>
+        <tr><td>vtracer_colormode</td><td>string</td><td><code>color</code></td><td>Modo VTracer: <code>color</code> ou <code>binary</code></td></tr>
+        <tr><td>vtracer_filter_speckle</td><td>int</td><td><code>4</code></td><td>VTracer: filtro de ruido</td></tr>
+        <tr><td>vtracer_color_precision</td><td>int</td><td><code>6</code></td><td>VTracer: precisao de cor</td></tr>
+        <tr><td>vtracer_layer_difference</td><td>int</td><td><code>16</code></td><td>VTracer: diferenca entre camadas</td></tr>
+        <tr><td>vtracer_corner_threshold</td><td>int</td><td><code>60</code></td><td>VTracer: threshold de cantos</td></tr>
+        <tr><td>vtracer_length_threshold</td><td>float</td><td><code>4.0</code></td><td>VTracer: threshold de comprimento</td></tr>
+        <tr><td>vtracer_splice_threshold</td><td>int</td><td><code>45</code></td><td>VTracer: threshold de juncao</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Resposta (200 OK)</h3>
+    <div class="code-block">
+{<br>
+&nbsp;&nbsp;<span class="key">"svg"</span>: <span class="str">"&lt;svg xmlns=...&gt;...&lt;/svg&gt;"</span>,<br>
+&nbsp;&nbsp;<span class="key">"regions"</span>: [<br>
+&nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"id"</span>: <span class="num">1</span>, <span class="key">"area"</span>: <span class="num">5000</span>, <span class="key">"bbox"</span>: [<span class="num">10</span>, <span class="num">20</span>, <span class="num">100</span>, <span class="num">80</span>] }<br>
+&nbsp;&nbsp;],<br>
+&nbsp;&nbsp;<span class="key">"width"</span>: <span class="num">800</span>,<br>
+&nbsp;&nbsp;<span class="key">"height"</span>: <span class="num">600</span>,<br>
+&nbsp;&nbsp;<span class="key">"processing_time_ms"</span>: <span class="num">245.3</span><br>
+}
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- POST /vectorize/download -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /vectorize/download</h2>
+    <p class="desc">Vetoriza e retorna o SVG como arquivo para download direto.</p>
+    <h3>Parametros</h3>
+    <table>
+      <thead><tr><th>Parametro</th><th>Tipo</th><th>Default</th><th>Descricao</th></tr></thead>
+      <tbody>
+        <tr><td>file</td><td>File</td><td>obrigatorio</td><td>Imagem de entrada</td></tr>
+        <tr><td>line_threshold</td><td>int</td><td><code>170</code></td><td>Sensibilidade de linhas</td></tr>
+        <tr><td>dilate_radius</td><td>int</td><td><code>1</code></td><td>Raio de dilatacao</td></tr>
+        <tr><td>min_area</td><td>int</td><td><code>10</code></td><td>Area minima de regiao</td></tr>
+        <tr><td>simplify</td><td>float</td><td><code>1.5</code></td><td>Tolerancia de simplificacao</td></tr>
+        <tr><td>include_lineart</td><td>bool</td><td><code>true</code></td><td>Incluir line art</td></tr>
+      </tbody>
+    </table>
+    <p class="desc">Retorna: <code>image/svg+xml</code> com header <code>Content-Disposition: attachment</code></p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- POST /preprocess/remove-bg -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /preprocess/remove-bg</h2>
+    <p class="desc">Remove o fundo da imagem usando rembg. Retorna PNG com transparencia.</p>
+    <h3>Parametros</h3>
+    <table>
+      <thead><tr><th>Parametro</th><th>Tipo</th><th>Descricao</th></tr></thead>
+      <tbody>
+        <tr><td>file</td><td>File</td><td>Imagem de entrada</td></tr>
+      </tbody>
+    </table>
+    <p class="desc">Retorna: <code>image/png</code></p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- POST /preprocess/upscale -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /preprocess/upscale</h2>
+    <p class="desc">Aumenta a resolucao da imagem por 2x ou 4x.</p>
+    <h3>Parametros</h3>
+    <table>
+      <thead><tr><th>Parametro</th><th>Tipo</th><th>Default</th><th>Descricao</th></tr></thead>
+      <tbody>
+        <tr><td>file</td><td>File</td><td>obrigatorio</td><td>Imagem de entrada</td></tr>
+        <tr><td>scale</td><td>int</td><td><code>2</code></td><td>Fator de escala (2 ou 4)</td></tr>
+      </tbody>
+    </table>
+    <p class="desc">Retorna: <code>image/png</code></p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- POST /analyze -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /analyze</h2>
+    <p class="desc">Analisa o tipo da imagem e retorna configuracoes recomendadas de vetorizacao.</p>
+    <h3>Resposta</h3>
+    <div class="code-block">
+{<br>
+&nbsp;&nbsp;<span class="key">"type"</span>: <span class="str">"lineart"</span>,<br>
+&nbsp;&nbsp;<span class="key">"confidence"</span>: <span class="num">0.92</span>,<br>
+&nbsp;&nbsp;<span class="key">"recommended_mode"</span>: <span class="str">"lineart"</span>,<br>
+&nbsp;&nbsp;<span class="key">"recommended_settings"</span>: { ... },<br>
+&nbsp;&nbsp;<span class="key">"analysis"</span>: { ... }<br>
+}
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- POST /extract-text -->
+  <div class="endpoint-section">
+    <h2><span class="method method-post">POST</span> /extract-text</h2>
+    <p class="desc">Extrai texto da imagem usando OCR. Retorna regioes de texto com bounding boxes.</p>
+    <h3>Resposta</h3>
+    <div class="code-block">
+{<br>
+&nbsp;&nbsp;<span class="key">"regions"</span>: [<br>
+&nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"text"</span>: <span class="str">"Hello"</span>, <span class="key">"bbox"</span>: [<span class="num">10</span>, <span class="num">20</span>, <span class="num">80</span>, <span class="num">40</span>], <span class="key">"confidence"</span>: <span class="num">0.95</span> }<br>
+&nbsp;&nbsp;],<br>
+&nbsp;&nbsp;<span class="key">"count"</span>: <span class="num">1</span><br>
+}
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- GET /health -->
+  <div class="endpoint-section">
+    <h2><span class="method method-get">GET</span> /health</h2>
+    <p class="desc">Health check do servidor.</p>
+    <h3>Resposta</h3>
+    <div class="code-block">
+{ <span class="key">"status"</span>: <span class="str">"ok"</span>, <span class="key">"version"</span>: <span class="str">"2.0.0"</span> }
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="endpoint-section">
+    <h2>Erros</h2>
+    <table>
+      <thead><tr><th>Codigo</th><th>Descricao</th></tr></thead>
+      <tbody>
+        <tr><td>400</td><td>Tipo de arquivo nao suportado ou arquivo muito grande (max 20 MB)</td></tr>
+        <tr><td>500</td><td>Erro interno na vetorizacao/processamento</td></tr>
+        <tr><td>501</td><td>Dependencia opcional nao instalada (ex: rembg)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<footer>
+  <p><a href="index.html">&#8592; Voltar para Home</a> &middot; <a href="https://github.com/haroldorodsilva/vectorizer-project">GitHub</a></p>
+</footer>
+
+</body>
+</html>
