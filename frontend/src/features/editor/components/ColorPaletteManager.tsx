@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, Save, Download } from 'lucide-react'
+import { Trash2, Save } from 'lucide-react'
 import { usePaletteStore, COLORS } from '@/features/palette/store'
 
 interface SavedPalette {
@@ -57,8 +57,6 @@ export function ColorPaletteManager() {
 
   const paint = (c: string) => {
     if (selectedEl && mode === 'select') {
-      const store = usePaletteStore.getState()
-      // Direct paint on selected element
       selectedEl.setAttribute('fill', c)
     } else {
       setColor(c)

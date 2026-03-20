@@ -24,7 +24,7 @@ export async function optimizeSvg(svgString: string): Promise<string> {
 /** Export SVG as PNG at given scale */
 export async function exportPng(
   svgEl: SVGSVGElement,
-  origVb: { x: number; y: number; w: number; h: number },
+  _origVb: { x: number; y: number; w: number; h: number },
   curVb: { x: number; y: number; w: number; h: number },
   scale: number = 1,
   transparent: boolean = false,

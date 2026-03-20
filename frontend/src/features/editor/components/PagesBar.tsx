@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Plus, X, Copy } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
-import type { useEditor } from '../hooks/useEditor'
 
 export interface PageDef {
   id: string

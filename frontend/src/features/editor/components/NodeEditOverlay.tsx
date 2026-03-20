@@ -28,18 +28,6 @@ function svgToScreen(
   }
 }
 
-function screenToSvg(
-  sx: number, sy: number,
-  svgEl: SVGSVGElement,
-  vb: { x: number; y: number; w: number; h: number },
-) {
-  const svgR = svgEl.getBoundingClientRect()
-  return {
-    x: vb.x + (sx - svgR.left) / svgR.width  * vb.w,
-    y: vb.y + (sy - svgR.top)  / svgR.height * vb.h,
-  }
-}
-
 export function NodeEditOverlay({ el, containerRef, editorRef, onExit }: NodeEditOverlayProps) {
   const [segs, setSegs] = useState<PathSeg[]>([])
   const [, forceRender] = useState(0)

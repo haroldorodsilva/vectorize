@@ -3,7 +3,7 @@ import { usePaletteStore } from '@/features/palette/store'
 import type { useEditor } from '../hooks/useEditor'
 import {
   Copy, Trash2, ChevronsUp, ChevronsDown, FlipHorizontal2, FlipVertical2,
-  Lock, Unlock, Eye, EyeOff, Scissors,
+  Lock, Unlock, Eye, EyeOff,
 } from 'lucide-react'
 import { getElSvgBBox } from '../lib/alignment'
 

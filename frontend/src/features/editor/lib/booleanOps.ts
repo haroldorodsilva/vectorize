@@ -114,7 +114,7 @@ function applyTransformString(item: paper.Item, tf: string) {
  * Returns the new element or null.
  */
 export function applyBooleanOp(
-  el1: Element, el2: Element, op: BoolOp, svg: SVGSVGElement,
+  el1: Element, el2: Element, op: BoolOp, _svg: SVGSVGElement,
 ): SVGPathElement | null {
   const d = booleanOp(el1, el2, op)
   if (!d) return null

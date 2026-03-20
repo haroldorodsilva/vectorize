@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, Download } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { usePaletteStore } from '@/features/palette/store'
 import type { useEditor } from '../hooks/useEditor'
 

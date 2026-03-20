@@ -77,7 +77,7 @@ export function createFreehandState(): FreehandState {
 }
 
 export function freehandDown(
-  state: FreehandState,
+  _state: FreehandState,
   svgX: number, svgY: number,
   svg: SVGSVGElement,
   color: string,
@@ -114,7 +114,7 @@ export function freehandMove(
 
 export function freehandUp(
   state: FreehandState,
-  color: string,
+  _color: string,
 ): FreehandState & { committed: SVGPathElement | null } {
   if (!state.previewEl || state.points.length < 3) {
     if (state.previewEl) state.previewEl.remove()

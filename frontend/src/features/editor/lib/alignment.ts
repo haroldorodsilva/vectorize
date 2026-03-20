@@ -36,8 +36,6 @@ export function getCombinedBBox(boxes: SvgBBox[]): SvgBBox {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
 }
 
-type MoveElFn = (el: Element, dx: number, dy: number) => void
-
 /** Apply a translate(dx,dy) composing with existing transform */
 function moveEl(el: Element, dx: number, dy: number) {
   if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return

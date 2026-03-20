@@ -107,7 +107,7 @@ export function LayersPanel({ elements, editorRef, onRefresh }: LayersPanelProps
       )}
       <div className="space-y-0.5 max-h-60 overflow-y-auto pr-0.5">
       {filtered.length === 0 && <p className="text-xs text-gray-400 text-center py-2">{filter ? 'Nenhum resultado.' : 'Nenhuma camada.'}</p>}
-      {filtered.map((el, ri) => {
+      {filtered.map((el, _ri) => {
         const i = elements.indexOf(el)
         const fill = el.getAttribute('fill') ?? '#FFFFFF'
         const isSelected = selectedEls.includes(el)

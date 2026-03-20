@@ -17,11 +17,11 @@ const BLEND_MODES = [
 
 export function EffectsPanel({ el, editorRef }: EffectsPanelProps) {
   const [shadowOn, setShadowOn] = useState(false)
-  const [shadowDx, setShadowDx] = useState(2)
-  const [shadowDy, setShadowDy] = useState(2)
+  const [shadowDx, _setShadowDx] = useState(2)
+  const [shadowDy, _setShadowDy] = useState(2)
   const [shadowBlur, setShadowBlur] = useState(3)
   const [shadowColor, setShadowColor] = useState('#000000')
-  const [shadowOpacity, setShadowOpacity] = useState(0.3)
+  const [shadowOpacity, _setShadowOpacity] = useState(0.3)
 
   const [blurOn, setBlurOn] = useState(false)
   const [blurRadius, setBlurRadius] = useState(3)

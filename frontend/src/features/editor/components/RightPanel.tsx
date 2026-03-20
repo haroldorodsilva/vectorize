@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/shared/lib/utils'
-import { usePaletteStore, COLORS } from '@/features/palette/store'
+import { usePaletteStore } from '@/features/palette/store'
 import { ControlsForm } from '@/features/vectorize/components/ControlsForm'
 import type { useEditor } from '@/features/editor/hooks/useEditor'
 import type { VectorizeResponse } from '@/shared/types'
 import type { ControlsValues } from '@/features/vectorize/schemas'
 import {
   ChevronsUp, ChevronUp, ChevronDown, ChevronsDown,
-  Copy, Ungroup, Eye, EyeOff, Trash2, Download,
+  Copy, Ungroup, Trash2, Download,
   Highlighter, Square, X, Eraser,
-  AlignHorizontalJustifyCenter, Type,
+  AlignHorizontalJustifyCenter,
   AlignStartVertical, AlignEndVertical, AlignCenterVertical,
   AlignStartHorizontal, AlignEndHorizontal, AlignCenterHorizontal,
   AlignHorizontalSpaceBetween, AlignVerticalSpaceBetween,
-  Grid3x3, Merge, Minus, CircleDot, Slice,
+  Merge, Minus, CircleDot, Slice,
 } from 'lucide-react'
 import {
   alignLeft, alignRight, alignTop, alignBottom,
@@ -81,23 +81,13 @@ function Section({ title, children, defaultOpen = true }: {
   )
 }
 
-function elLabel(el: Element, i: number): string {
-  const tag = el.tagName.toLowerCase()
-  if (tag === 'text') return el.textContent?.trim().slice(0, 20) || `Texto ${i + 1}`
-  if (tag === 'rect') return `Retângulo ${i + 1}`
-  if (tag === 'ellipse' || tag === 'circle') return `Elipse ${i + 1}`
-  if (tag === 'line') return `Linha ${i + 1}`
-  if (tag === 'g') return `Grupo ${i + 1}`
-  return `Caminho ${i + 1}`
-}
 
 export function RightPanel({
-  editorRef, svgData, fileLoaded, disabled, loading, onSubmit,
+  editorRef, svgData, fileLoaded: _fileLoaded, disabled, loading, onSubmit,
   hlOn, tpOn, onToggleHL, onToggleTP, canVectorize = true,
 }: RightPanelProps) {
-  const { selectedColor, mode, selectedEl, selectedEls, setColor, setMode, setSelectedEl, setSelectedEls, gridEnabled, gridSize, setGridEnabled, setGridSize } = usePaletteStore()
+  const { selectedColor: _selectedColor, mode, selectedEl, selectedEls, setColor: _setColor, setMode, setSelectedEl, setSelectedEls, gridEnabled: _gridEnabled, gridSize: _gridSize, setGridEnabled: _setGridEnabled, setGridSize: _setGridSize } = usePaletteStore()
   const [elements, setElements]   = useState<Element[]>([])
-  const [hidden, setHidden]       = useState<Set<number>>(new Set())
   const [checked, setChecked]     = useState<Set<number>>(new Set())
   const [resW, setResW]           = useState('')
   const [resH, setResH]           = useState('')
@@ -116,7 +106,7 @@ export function RightPanel({
     requestAnimationFrame(() => {
       const svg = editorRef.getSvg()
       setElements(Array.from(svg?.querySelectorAll('[data-region]') ?? []))
-      setHidden(new Set()); setChecked(new Set())
+      setChecked(new Set())
       setBgColor(editorRef.getBackground())
     })
   }, [editorRef])
@@ -192,20 +182,11 @@ export function RightPanel({
     editorRef.applyResize(w, h)
   }
 
-  // ── Visibility ────────────────────────────────────────────────────────────
-  const toggleVisibility = (i: number, el: Element) => {
-    const next = new Set(hidden)
-    if (hidden.has(i)) { next.delete(i); el.removeAttribute('visibility') }
-    else               { next.add(i);    el.setAttribute('visibility', 'hidden') }
-    setHidden(next)
-  }
   const deleteEl = (el: Element) => {
     editorRef.deleteSelected(el); refreshElements()
     if (selectedEls.includes(el)) setSelectedEls(selectedEls.filter(e => e !== el))
   }
 
-  // ── Multi-select ──────────────────────────────────────────────────────────
-  const toggleCheck = (i: number) => { const n = new Set(checked); n.has(i) ? n.delete(i) : n.add(i); setChecked(n) }
   const checkedEls = Array.from(checked).map(i => elements[i]).filter(Boolean)
 
   const doGroup = () => {
@@ -226,7 +207,6 @@ export function RightPanel({
     if (children.length) { setSelectedEl(children[children.length - 1]); setMode('select') }
   }
 
-  const selFill = selectedEl?.getAttribute('fill') ?? null
   const isGroup = selectedEl?.tagName === 'g'
   const isText  = selectedEl?.tagName === 'text'
 

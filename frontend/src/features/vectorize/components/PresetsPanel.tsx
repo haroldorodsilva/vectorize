@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Trash2 } from 'lucide-react'
+import { Save } from 'lucide-react'
 import type { ControlsValues } from '../schemas'
 
 interface Preset {

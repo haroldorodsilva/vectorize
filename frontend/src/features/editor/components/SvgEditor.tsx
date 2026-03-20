@@ -128,6 +128,7 @@ function SelectionOverlay({ els, containerRef, editorRef }: SelOverlayProps) {
     const vb = editorRef.vbRef.current
     if (!svgEl || !vb) return
 
+    if (!el) return
     const svgR = svgEl.getBoundingClientRect()
     const er   = el.getBoundingClientRect()
     const scX  = vb.w / svgR.width
@@ -657,7 +658,7 @@ export function SvgEditor({
       }
       panL = { x: e.clientX, y: e.clientY }
     }
-    const onUp = (e: MouseEvent) => {
+    const onUp = (_e: MouseEvent) => {
       if (!md) return; md = false
 
       // Finish multi-element move

@@ -27,7 +27,8 @@
       "Bash(pip show:*)",
       "Bash(pip install:*)",
       "Bash(tesseract --version)",
-      "WebFetch(domain:render.com)"
+      "WebFetch(domain:render.com)",
+      "Bash(npm audit:*)"
     ]
   }
 }

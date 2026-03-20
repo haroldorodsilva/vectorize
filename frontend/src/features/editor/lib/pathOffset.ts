@@ -8,7 +8,7 @@
  * Convert element's stroke to a filled outline path.
  * Creates a temporary SVG, renders the element, and extracts the outline.
  */
-export function outlineStroke(el: Element, svg: SVGSVGElement): SVGPathElement | null {
+export function outlineStroke(el: Element, _svg: SVGSVGElement): SVGPathElement | null {
   const tag = el.tagName.toLowerCase()
   if (tag !== 'path' && tag !== 'line' && tag !== 'polyline' && tag !== 'polygon'
     && tag !== 'rect' && tag !== 'ellipse' && tag !== 'circle') return null
@@ -74,7 +74,7 @@ export function outlineStroke(el: Element, svg: SVGSVGElement): SVGPathElement |
  * Expand or contract a shape by a given offset distance.
  * Positive = expand, Negative = contract.
  */
-export function offsetShape(el: Element, offset: number, svg: SVGSVGElement): SVGPathElement | null {
+export function offsetShape(el: Element, offset: number, _svg: SVGSVGElement): SVGPathElement | null {
   const tag = el.tagName.toLowerCase()
   const ns = 'http://www.w3.org/2000/svg'
 
