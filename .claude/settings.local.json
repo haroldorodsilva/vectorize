@@ -26,7 +26,8 @@
       "Bash(npx vite:*)",
       "Bash(pip show:*)",
       "Bash(pip install:*)",
-      "Bash(tesseract --version)"
+      "Bash(tesseract --version)",
+      "WebFetch(domain:render.com)"
     ]
   }
 }
