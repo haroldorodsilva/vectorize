@@ -22,7 +22,6 @@ services:
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: ./dist
     plan: free
-    region: oregon
     headers:
       - path: /*
         name: Cache-Control
