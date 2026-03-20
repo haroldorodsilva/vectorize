@@ -21,26 +21,14 @@ services:
     runtime: static
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: "https://vectorizer-api-0xah.onrender.com"
     headers:
       - path: /*
         name: Cache-Control
         value: public, max-age=86400
     routes:
-      - type: rewrite
-        source: /vectorize/*
-        destination: https://vectorizer-api.onrender.com/vectorize/*
-      - type: rewrite
-        source: /preprocess/*
-        destination: https://vectorizer-api.onrender.com/preprocess/*
-      - type: rewrite
-        source: /analyze
-        destination: https://vectorizer-api.onrender.com/analyze
-      - type: rewrite
-        source: /extract-text
-        destination: https://vectorizer-api.onrender.com/extract-text
-      - type: rewrite
-        source: /health
-        destination: https://vectorizer-api.onrender.com/health
       # SPA fallback
       - type: rewrite
         source: /*

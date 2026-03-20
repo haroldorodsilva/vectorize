@@ -1,6 +1,8 @@
 import type { VectorizeResponse } from '@/shared/types'
 import type { ControlsValues } from './schemas'
 
+const API = import.meta.env.VITE_API_URL || ''
+
 export async function vectorize(
   file: File,
   {
@@ -23,7 +25,7 @@ export async function vectorize(
   fd.append('vtracer_corner_threshold', String(vtCornerThreshold))
   fd.append('vtracer_splice_threshold', String(vtSpliceThreshold))
 
-  const r = await fetch('/vectorize', { method: 'POST', body: fd })
+  const r = await fetch(`${API}/vectorize`, { method: 'POST', body: fd })
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
     throw new Error((e as { detail?: string }).detail ?? r.statusText)
@@ -36,7 +38,7 @@ export async function upscaleImage(file: File, scale: number = 2): Promise<Blob>
   const fd = new FormData()
   fd.append('file', file)
   fd.append('scale', String(scale))
-  const r = await fetch('/preprocess/upscale', { method: 'POST', body: fd })
+  const r = await fetch(`${API}/preprocess/upscale`, { method: 'POST', body: fd })
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
     throw new Error((e as { detail?: string }).detail ?? r.statusText)
@@ -48,7 +50,7 @@ export async function upscaleImage(file: File, scale: number = 2): Promise<Blob>
 export async function removeBackground(file: File): Promise<Blob> {
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch('/preprocess/remove-bg', { method: 'POST', body: fd })
+  const r = await fetch(`${API}/preprocess/remove-bg`, { method: 'POST', body: fd })
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
     throw new Error((e as { detail?: string }).detail ?? r.statusText)
@@ -63,7 +65,7 @@ export async function extractText(file: File): Promise<{
 }> {
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch('/extract-text', { method: 'POST', body: fd })
+  const r = await fetch(`${API}/extract-text`, { method: 'POST', body: fd })
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
     throw new Error((e as { detail?: string }).detail ?? r.statusText)
@@ -81,7 +83,7 @@ export async function analyzeImage(file: File): Promise<{
 }> {
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch('/analyze', { method: 'POST', body: fd })
+  const r = await fetch(`${API}/analyze`, { method: 'POST', body: fd })
   if (!r.ok) {
     const e = await r.json().catch(() => ({}))
     throw new Error((e as { detail?: string }).detail ?? r.statusText)
