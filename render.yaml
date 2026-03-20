@@ -1,0 +1,49 @@
+# Render Blueprint — deploy backend + frontend com um clique
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Backend (FastAPI + OpenCV)
+  - type: web
+    name: vectorizer-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"
+
+  # Frontend (React/Vite — static site)
+  - type: web
+    name: vectorizer-app
+    runtime: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./dist
+    plan: free
+    region: oregon
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=86400
+    routes:
+      - type: rewrite
+        source: /vectorize/*
+        destination: https://vectorizer-api.onrender.com/vectorize/*
+      - type: rewrite
+        source: /preprocess/*
+        destination: https://vectorizer-api.onrender.com/preprocess/*
+      - type: rewrite
+        source: /analyze
+        destination: https://vectorizer-api.onrender.com/analyze
+      - type: rewrite
+        source: /extract-text
+        destination: https://vectorizer-api.onrender.com/extract-text
+      - type: rewrite
+        source: /health
+        destination: https://vectorizer-api.onrender.com/health
+      # SPA fallback
+      - type: rewrite
+        source: /*
+        destination: /index.html
