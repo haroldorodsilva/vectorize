@@ -31,7 +31,7 @@ export function DropZone({ onFile }: DropZoneProps) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,.svg,image/svg+xml"
+        accept="image/*,.svg,image/svg+xml,.pdf,application/pdf,.eps,application/postscript,.ps"
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f) }}
       />
@@ -39,7 +39,7 @@ export function DropZone({ onFile }: DropZoneProps) {
       <p className="text-sm font-semibold mb-1">
         {currentFile ? currentFile.name : 'Clique ou arraste uma imagem'}
       </p>
-      <p className="text-xs text-gray-400">PNG · JPG · WEBP · BMP · SVG — máx 20 MB</p>
+      <p className="text-xs text-gray-400">PNG · JPG · WEBP · BMP · SVG · PDF · EPS · PS — máx 20 MB</p>
     </div>
   )
 }

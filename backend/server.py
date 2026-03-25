@@ -14,6 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from vectorizer import vectorize
 from vectorizer.config import VectorizerConfig
+from vectorizer.ghostscript_convert import (
+    GHOSTSCRIPT_MIMES,
+    convert_to_png as gs_convert,
+    is_ghostscript_available,
+)
 
 app = FastAPI(
     title="Vectorizer API",
@@ -28,7 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ALLOWED  = {"image/png", "image/jpeg", "image/webp", "image/bmp", "image/heic", "image/heif", "image/avif"}
+ALLOWED  = {
+    "image/png", "image/jpeg", "image/webp", "image/bmp",
+    "image/heic", "image/heif", "image/avif",
+    # PDF / EPS / PS  (convertidos via Ghostscript)
+    "application/pdf",
+    "application/postscript",
+    "image/x-eps",
+    "application/eps",
+    "application/x-eps",
+}
 MAX_SIZE = 20 * 1024 * 1024
 
 # Register HEIF/HEIC support if available
@@ -41,7 +55,19 @@ except ImportError:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "2.0.0", "ghostscript": is_ghostscript_available()}
+
+
+def _maybe_convert_with_ghostscript(data: bytes, content_type: str | None) -> bytes:
+    """Se o arquivo for PDF/EPS/PS, converte para PNG via Ghostscript."""
+    if content_type in GHOSTSCRIPT_MIMES:
+        try:
+            return gs_convert(data)
+        except RuntimeError as e:
+            # Mensagem sanitizada — não expõe caminhos temporários internos
+            msg = str(e).split(":")[-1].strip() if ":" in str(e) else str(e)
+            raise HTTPException(422, f"Ghostscript: {msg}")
+    return data
 
 
 @app.post("/vectorize")
@@ -71,6 +97,9 @@ async def api_vectorize(
     data = await file.read()
     if len(data) > MAX_SIZE:
         raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    # Converter PDF/EPS/PS para PNG via Ghostscript antes de vetorizar
+    data = _maybe_convert_with_ghostscript(data, file.content_type)
 
     cfg = VectorizerConfig(
         max_dimension=max_dimension,
@@ -111,6 +140,9 @@ async def api_download(
     data = await file.read()
     if len(data) > MAX_SIZE:
         raise HTTPException(400, "Arquivo muito grande")
+
+    # Converter PDF/EPS/PS para PNG via Ghostscript antes de vetorizar
+    data = _maybe_convert_with_ghostscript(data, file.content_type)
 
     cfg = VectorizerConfig(
         line_threshold=line_threshold,
