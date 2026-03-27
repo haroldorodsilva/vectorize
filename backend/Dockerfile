@@ -2,10 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dependencias de sistema para OpenCV
+# Dependencias de sistema para OpenCV + Inkscape (EPS→SVG vetorial)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 ghostscript && \
+    libgl1 libglib2.0-0 ghostscript inkscape && \
     rm -rf /var/lib/apt/lists/*
 
 # Instalar dependencias Python (cache de layer)

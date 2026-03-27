@@ -6,6 +6,7 @@ Dev:   uvicorn server:app --reload --port 8080
 Prod:  uvicorn server:app --host 0.0.0.0 --port 8080
 """
 
+import re
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import Response
@@ -164,18 +165,67 @@ async def api_download(
 
 # ── EPS/PDF → SVG direct conversion ──────────────────────────────────────────
 
+
+def _add_data_regions(svg: str) -> str:
+    """Injeta data-region em cada <path>, <polygon>, <circle>, <rect>, <ellipse> para o editor."""
+    counter = [0]
+    def _replacer(m: re.Match) -> str:
+        tag = m.group(0)
+        if "data-region" not in tag:
+            idx = counter[0]
+            counter[0] += 1
+            tag_name = m.group(1)
+            tag = tag.replace(f"<{tag_name} ", f'<{tag_name} data-region="{idx}" ', 1)
+        return tag
+    return re.sub(r"<(path|polygon|circle|rect|ellipse)\s[^>]*?/?>", _replacer, svg)
+
+
+def _ensure_viewbox(svg: str) -> str:
+    """Garante que o SVG tenha viewBox. Extrai de width/height se necessário."""
+    if "viewBox" in svg:
+        return svg
+    w_m = re.search(r'width="([^"]+)"', svg)
+    h_m = re.search(r'height="([^"]+)"', svg)
+    if w_m and h_m:
+        w = w_m.group(1).replace("pt", "").replace("px", "").strip()
+        h = h_m.group(1).replace("pt", "").replace("px", "").strip()
+        try:
+            wf, hf = float(w), float(h)
+            svg = svg.replace(
+                f'height="{h_m.group(1)}"',
+                f'height="{h_m.group(1)}" viewBox="0 0 {wf} {hf}"',
+                1,
+            )
+        except ValueError:
+            pass
+    return svg
+
 EPS_MIMES = {
     "application/postscript",
     "image/x-eps",
     "application/eps",
     "application/x-eps",
     "application/pdf",
+    "application/octet-stream",  # browsers often send this for .eps
 }
+
+EPS_EXTENSIONS = {".eps", ".ps", ".pdf"}
+
+
+def _is_eps_file(file: UploadFile) -> bool:
+    """Verifica se o arquivo é EPS/PS/PDF por MIME type ou extensão."""
+    if file.content_type in EPS_MIMES:
+        return True
+    if file.filename:
+        ext = Path(file.filename).suffix.lower()
+        return ext in EPS_EXTENSIONS
+    return False
+
 
 @app.post("/convert/eps-to-svg")
 async def api_eps_to_svg(file: UploadFile = File(...)):
     """Converte EPS/PS/PDF diretamente para SVG preservando dados vetoriais."""
-    if file.content_type not in EPS_MIMES:
+    if not _is_eps_file(file):
         raise HTTPException(400, f"Tipo não suportado: {file.content_type}. Envie um arquivo EPS, PS ou PDF.")
 
     if not is_ghostscript_available():
@@ -191,6 +241,11 @@ async def api_eps_to_svg(file: UploadFile = File(...)):
         raise HTTPException(422, f"Erro na conversão: {e}")
     except Exception as e:
         raise HTTPException(500, f"Erro inesperado na conversão: {type(e).__name__}")
+
+    # Adicionar data-region nos paths para o editor funcionar
+    svg_content = _add_data_regions(svg_content)
+    # Garantir viewBox
+    svg_content = _ensure_viewbox(svg_content)
 
     name = Path(file.filename or "output").stem + ".svg"
     return Response(

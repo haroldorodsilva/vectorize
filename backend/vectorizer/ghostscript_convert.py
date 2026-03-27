@@ -65,6 +65,15 @@ def convert_to_png(data: bytes, dpi: int = 300) -> bytes:
         return dst.read_bytes()
 
 
+def _is_inkscape_available() -> bool:
+    """Verifica se o Inkscape está disponível."""
+    try:
+        subprocess.run(["inkscape", "--version"], capture_output=True, timeout=10)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
 def _gs_has_svg_device() -> bool:
     """Verifica se o Ghostscript tem o dispositivo SVG disponível."""
     try:
@@ -79,22 +88,54 @@ def _gs_has_svg_device() -> bool:
 
 def convert_to_svg(data: bytes) -> str:
     """
-    Converte PDF/EPS/PS para SVG.
+    Converte PDF/EPS/PS para SVG preservando dados vetoriais.
 
-    Estratégia:
-    1. Ghostscript svg device (se disponível)
-    2. Fallback: Ghostscript → PNG alta resolução → vtracer (vetorização)
+    Estratégia (do melhor para o aceitável):
+    1. Inkscape — preserva paths vetoriais originais do EPS
+    2. Ghostscript svg device — boa qualidade vetorial
+    3. Fallback: Ghostscript PNG → vtracer — re-vetoriza (perde qualidade original)
     """
-    # Tentar device svg nativo do Ghostscript
+    # 1. Inkscape: melhor resultado, preserva vetores originais
+    if _is_inkscape_available():
+        try:
+            return _inkscape_convert(data)
+        except RuntimeError:
+            pass
+
+    # 2. Ghostscript svg device
     if _gs_has_svg_device():
         try:
             return _gs_svg_device(data)
         except RuntimeError:
-            pass  # fallback abaixo
+            pass
 
-    # Fallback: EPS → PNG (alta res) → SVG via vtracer
+    # 3. Fallback: EPS → PNG (alta res) → SVG via vtracer
     png_data = convert_to_png(data, dpi=300)
     return _png_to_svg_vtracer(png_data)
+
+
+def _inkscape_convert(data: bytes) -> str:
+    """Converte EPS/PS/PDF para SVG usando Inkscape (preserva vetores)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "input.eps"
+        dst = Path(tmp) / "output.svg"
+        src.write_bytes(data)
+
+        cmd = [
+            "inkscape",
+            str(src),
+            "--export-type=svg",
+            f"--export-filename={dst}",
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace")
+            raise RuntimeError(f"Inkscape falhou (código {result.returncode}): {stderr}")
+
+        if not dst.exists():
+            raise RuntimeError("Inkscape não gerou arquivo SVG")
+
+        return dst.read_text(encoding="utf-8")
 
 
 def _gs_svg_device(data: bytes) -> str:
@@ -130,15 +171,9 @@ def _gs_svg_device(data: bytes) -> str:
 def _png_to_svg_vtracer(png_data: bytes) -> str:
     """Converte PNG para SVG usando vtracer."""
     import vtracer
-    import io
-    from PIL import Image
-
-    img = Image.open(io.BytesIO(png_data)).convert("RGBA")
 
     svg_str = vtracer.convert_raw_image_to_svg(
-        img.tobytes(),
-        img.width,
-        img.height,
+        png_data,
         colormode="color",
         hierarchical="stacked",
         filter_speckle=4,
