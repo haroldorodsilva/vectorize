@@ -13,9 +13,22 @@ import { SvgCodeEditor }       from '@/features/editor/components/SvgCodeEditor'
 import { useAutoSave, getAutoSave, clearAutoSave } from '@/features/editor/hooks/useAutoSave'
 import { PagesBar, type PageDef } from '@/features/editor/components/PagesBar'
 import type { ControlsValues } from '@/features/vectorize/schemas'
+import { convertEpsToSvg } from '@/features/vectorize/api'
 
 const isSvgFile = (f: File) =>
   f.type === 'image/svg+xml' || f.name.toLowerCase().endsWith('.svg')
+
+const isEpsFile = (f: File) => {
+  const name = f.name.toLowerCase()
+  return (
+    f.type === 'application/postscript' ||
+    f.type === 'image/x-eps' ||
+    f.type === 'application/eps' ||
+    f.type === 'application/x-eps' ||
+    name.endsWith('.eps') ||
+    name.endsWith('.ps')
+  )
+}
 
 export function App() {
   const { isProcessing, svgData, run, setSvgData } = useVectorizeStore()
@@ -150,6 +163,28 @@ export function App() {
       useVectorizeStore.getState().setFile(file)
       setFileLoaded(true)
       setPreviewUrl(null)
+    } else if (isEpsFile(file)) {
+      // Convert EPS/PS directly to SVG via Ghostscript (preserves vector data)
+      useVectorizeStore.getState().setFile(file)
+      useVectorizeStore.setState({ isProcessing: true })
+      try {
+        const svgText = await convertEpsToSvg(file)
+        useVectorizeStore.getState().setSvgData({
+          svg: svgText,
+          regions: [],
+          width: 0,
+          height: 0,
+          processing_time_ms: 0,
+        })
+        setFileLoaded(true)
+        setPreviewUrl(null)
+      } catch (err) {
+        alert('Erro ao converter EPS:\n' + (err instanceof Error ? err.message : String(err)))
+        setFileLoaded(true)
+        setPreviewUrl(URL.createObjectURL(file))
+      } finally {
+        useVectorizeStore.setState({ isProcessing: false })
+      }
     } else {
       useVectorizeStore.getState().setFile(file)
       setFileLoaded(true)

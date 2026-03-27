@@ -17,6 +17,7 @@ from vectorizer.config import VectorizerConfig
 from vectorizer.ghostscript_convert import (
     GHOSTSCRIPT_MIMES,
     convert_to_png as gs_convert,
+    convert_to_svg as gs_convert_svg,
     is_ghostscript_available,
 )
 
@@ -158,6 +159,43 @@ async def api_download(
         content=result["svg"],
         media_type="image/svg+xml",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+# ── EPS/PDF → SVG direct conversion ──────────────────────────────────────────
+
+EPS_MIMES = {
+    "application/postscript",
+    "image/x-eps",
+    "application/eps",
+    "application/x-eps",
+    "application/pdf",
+}
+
+@app.post("/convert/eps-to-svg")
+async def api_eps_to_svg(file: UploadFile = File(...)):
+    """Converte EPS/PS/PDF diretamente para SVG preservando dados vetoriais."""
+    if file.content_type not in EPS_MIMES:
+        raise HTTPException(400, f"Tipo não suportado: {file.content_type}. Envie um arquivo EPS, PS ou PDF.")
+
+    if not is_ghostscript_available():
+        raise HTTPException(501, "Ghostscript não está disponível no servidor.")
+
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(400, "Arquivo muito grande (máx 20 MB)")
+
+    try:
+        svg_content = gs_convert_svg(data)
+    except RuntimeError as e:
+        msg = str(e).split(":")[-1].strip() if ":" in str(e) else str(e)
+        raise HTTPException(422, f"Ghostscript: {msg}")
+
+    name = Path(file.filename or "output").stem + ".svg"
+    return Response(
+        content=svg_content,
+        media_type="image/svg+xml",
+        headers={"Content-Disposition": f'inline; filename="{name}"'},
     )
 
 

@@ -1,6 +1,5 @@
-"""Conversão de PDF/EPS/PS para PNG usando Ghostscript."""
+"""Conversão de PDF/EPS/PS para PNG ou SVG usando Ghostscript."""
 
-import io
 import subprocess
 import tempfile
 from pathlib import Path
@@ -64,3 +63,37 @@ def convert_to_png(data: bytes, dpi: int = 300) -> bytes:
             raise RuntimeError("Ghostscript não gerou arquivo de saída")
 
         return dst.read_bytes()
+
+
+def convert_to_svg(data: bytes) -> str:
+    """
+    Converte PDF/EPS/PS para SVG usando Ghostscript (dispositivo svg).
+
+    Retorna string SVG resultante (primeira página apenas).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "input.eps"
+        dst = Path(tmp) / "output.svg"
+        src.write_bytes(data)
+
+        cmd = [
+            "gs",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-dSAFER",
+            "-dQUIET",
+            "-sDEVICE=svg",
+            "-dFirstPage=1",
+            "-dLastPage=1",
+            f"-sOutputFile={dst}",
+            str(src),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace")
+            raise RuntimeError(f"Ghostscript falhou (código {result.returncode}): {stderr}")
+
+        if not dst.exists():
+            raise RuntimeError("Ghostscript não gerou arquivo de saída")
+
+        return dst.read_text(encoding="utf-8")

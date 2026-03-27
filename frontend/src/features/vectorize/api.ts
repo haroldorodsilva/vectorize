@@ -90,3 +90,15 @@ export async function analyzeImage(file: File): Promise<{
   }
   return r.json()
 }
+
+/** Convert EPS/PS/PDF directly to SVG (preserves vector data) */
+export async function convertEpsToSvg(file: File): Promise<string> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const r = await fetch(`${API}/convert/eps-to-svg`, { method: 'POST', body: fd })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw new Error((e as { detail?: string }).detail ?? r.statusText)
+  }
+  return r.text()
+}
