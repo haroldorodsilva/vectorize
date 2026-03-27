@@ -188,8 +188,9 @@ async def api_eps_to_svg(file: UploadFile = File(...)):
     try:
         svg_content = gs_convert_svg(data)
     except RuntimeError as e:
-        msg = str(e).split(":")[-1].strip() if ":" in str(e) else str(e)
-        raise HTTPException(422, f"Ghostscript: {msg}")
+        raise HTTPException(422, f"Erro na conversão: {e}")
+    except Exception as e:
+        raise HTTPException(500, f"Erro inesperado na conversão: {type(e).__name__}")
 
     name = Path(file.filename or "output").stem + ".svg"
     return Response(
