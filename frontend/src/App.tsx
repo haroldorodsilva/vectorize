@@ -317,7 +317,7 @@ export function App() {
         <label className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer font-medium text-gray-700 transition-colors select-none">
           ⊕ Carregar
           <input
-            type="file" accept="image/*,.svg,image/svg+xml" className="hidden"
+            type="file" accept="image/*,.svg,image/svg+xml,.pdf,application/pdf,.eps,application/postscript,.ps" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
           />
         </label>
