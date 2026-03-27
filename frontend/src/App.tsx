@@ -20,15 +20,23 @@ const isSvgFile = (f: File) =>
 
 const isEpsFile = (f: File) => {
   const name = f.name.toLowerCase()
-  return (
+  const isEpsMime =
     f.type === 'application/postscript' ||
     f.type === 'image/x-eps' ||
     f.type === 'application/eps' ||
-    f.type === 'application/x-eps' ||
+    f.type === 'application/x-eps'
+  const isEpsExt =
     name.endsWith('.eps') ||
-    name.endsWith('.ps')
-  )
+    name.endsWith('.ps') ||
+    name.endsWith('.pdf')
+  // browsers often send application/octet-stream for .eps files
+  if (f.type === 'application/octet-stream') return isEpsExt
+  return isEpsMime || isEpsExt
 }
+
+/** Strip XML declaration, BOM, and DOCTYPE from SVG text for safe innerHTML use */
+const cleanSvgText = (svg: string): string =>
+  svg.replace(/^\uFEFF/, '').replace(/<\?xml[^?]*\?>\s*/i, '').replace(/<!DOCTYPE[^>]*>\s*/i, '')
 
 export function App() {
   const { isProcessing, svgData, run, setSvgData } = useVectorizeStore()
@@ -146,15 +154,16 @@ export function App() {
 
   const doLoadFile = async (file: File) => {
     useVectorizeStore.getState().reset()
+    setPages([])
+    setActivePageIdx(0)
     setHlOn(false); setTpOn(false); setTpSaved([])
     setCompareOn(false)
 
     if (isSvgFile(file)) {
       // Load SVG directly into editor without vectorizing
       const text = await file.text()
-      // Wrap in a minimal response shape
       useVectorizeStore.getState().setSvgData({
-        svg: text,
+        svg: cleanSvgText(text),
         regions: [],
         width: 0,
         height: 0,
@@ -164,24 +173,24 @@ export function App() {
       setFileLoaded(true)
       setPreviewUrl(null)
     } else if (isEpsFile(file)) {
-      // Convert EPS/PS directly to SVG via Ghostscript (preserves vector data)
+      // Convert EPS/PS/PDF directly to SVG (preserves vector data)
       useVectorizeStore.getState().setFile(file)
+      setFileLoaded(true)
+      setPreviewUrl(null)
       useVectorizeStore.setState({ isProcessing: true })
       try {
         const svgText = await convertEpsToSvg(file)
         useVectorizeStore.getState().setSvgData({
-          svg: svgText,
+          svg: cleanSvgText(svgText),
           regions: [],
           width: 0,
           height: 0,
           processing_time_ms: 0,
         })
-        setFileLoaded(true)
-        setPreviewUrl(null)
       } catch (err) {
         alert('Erro ao converter EPS:\n' + (err instanceof Error ? err.message : String(err)))
-        setFileLoaded(true)
-        setPreviewUrl(URL.createObjectURL(file))
+        useVectorizeStore.getState().reset()
+        setFileLoaded(false)
       } finally {
         useVectorizeStore.setState({ isProcessing: false })
       }
@@ -444,7 +453,7 @@ export function App() {
             </div>
 
           ) : !svgData ? (
-            // ── Original image (before vectorize) ─────────────────────────
+            // ── Original image (before vectorize) or EPS converting ──────
             <div className="flex-1 flex items-center justify-center p-8 relative">
               {previewUrl && (
                 <img
@@ -455,8 +464,8 @@ export function App() {
               )}
               {isProcessing && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl m-8">
-                  <div className="bg-white rounded-2xl px-8 py-5 text-sm font-semibold text-gray-800 shadow-2xl">
-                    ⟳ Vetorizando…
+                  <div className="bg-white rounded-2xl px-8 py-5 text-sm font-semibold text-gray-800 shadow-2xl animate-pulse">
+                    ⟳ Convertendo…
                   </div>
                 </div>
               )}
